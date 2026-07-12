@@ -1,0 +1,24 @@
+*
+!/.gitignore
+!/aqi-platform/
+!/aqi-platform/**
+
+# Keep the project folder clean.
+/aqi-platform/**/.env
+/aqi-platform/**/.env.*
+/aqi-platform/**/details.env
+/aqi-platform/**/venv/
+/aqi-platform/**/.venv/
+/aqi-platform/**/env/
+/aqi-platform/**/ENV/
+/aqi-platform/**/*.doc
+/aqi-platform/**/*.docx
+/aqi-platform/**/*.docm
+/aqi-platform/**/~$*
+/aqi-platform/**/__pycache__/
+/aqi-platform/**/*.py[cod]
+/aqi-platform/**/.pytest_cache/
+/aqi-platform/**/.mypy_cache/
+/aqi-platform/**/.ruff_cache/
+/aqi-platform/**/.tox/
+/aqi-platform/**/.nox/

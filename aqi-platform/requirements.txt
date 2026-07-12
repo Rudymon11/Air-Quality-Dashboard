@@ -1,0 +1,11 @@
+requests
+pandas
+apache-airflow
+dbt-postgres
+streamlit
+prophet
+scikit-learn
+matplotlib
+seaborn
+psycopg2-binary
+python-dotenv
