@@ -22,3 +22,5 @@
 /aqi-platform/**/.ruff_cache/
 /aqi-platform/**/.tox/
 /aqi-platform/**/.nox/
+
+AQI_Platform_Milestone_Checklist.md

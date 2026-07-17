@@ -21,7 +21,9 @@ venv/
 env/
 ENV/
 .ipynb_checkpoints/
-
+airflow_venv/
+airflow/
+airflow credentials.txt
 # Environment files
 *.env
 details.env
@@ -39,3 +41,12 @@ details.env
 Thumbs.db
 .idea/
 .vscode/
+
+*.xml
+
+openaq_backfill_progress.json
+openaq_location_cache.json
+raw_aqi_readings_backfill.csv
+interview tips and answers.md
+diagnose_cpcb.py
+fetch_datewise.sql
