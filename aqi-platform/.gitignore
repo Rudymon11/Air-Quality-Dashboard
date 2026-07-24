@@ -50,3 +50,7 @@ raw_aqi_readings_backfill.csv
 interview tips and answers.md
 diagnose_cpcb.py
 fetch_datewise.sql
+fetch_indexes.sql
+
+
+DEBUGGING.md

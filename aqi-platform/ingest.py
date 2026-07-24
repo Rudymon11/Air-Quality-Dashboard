@@ -67,6 +67,15 @@ FIX #6 - CPCB's pollutant value field names changed at the API level.
          though the API itself was responding fine. _get_pollutant_value()
          now checks both key names, so a future reversion on their end
          doesn't silently reintroduce the same failure mode.
+
+FIX #7 - _save() passed the raw SQLAlchemy Engine straight to df.to_sql(),
+         which threw "AttributeError: 'Engine' object has no attribute
+         'cursor'" the first time this ran for real under Airflow. Caused
+         by pandas failing to recognize the Engine as a proper SQLAlchemy
+         connectable (a version-sensitive detection issue) and falling
+         back to a legacy DBAPI code path that expects a raw connection
+         with a .cursor() method. Fixed by passing an explicit Connection
+         via engine.begin() instead of the bare Engine.
 ---------------------------------------------------------------------------
 """
 
@@ -77,8 +86,10 @@ import requests
 import pandas as pd
 from datetime import datetime, timezone
 from dotenv import load_dotenv
+from pathlib import Path
 
-load_dotenv()
+load_dotenv(dotenv_path=Path(__file__).resolve().parent / ".env")
+
 
 CITIES = ["Delhi", "Ludhiana", "Lucknow", "Srinagar", "Dehradun",
           "Mumbai", "Ahmedabad", "Panaji", "Kochi", "Visakhapatnam",
@@ -103,29 +114,42 @@ def _fetch_cpcb_city(city, limit=500, max_retries=3):
     FIX #2: added retry/backoff. CPCB doesn't publish a documented rate
     limit, so this uses simple linear backoff (5s x attempt number)
     rather than trying to read a reset header that may not exist.
-    """
 
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-    }
+    FIX 3: Strictly check if the API key is actually loaded in Airflow's environment
+
+    FIX 4: Fake a standard browser User-Agent so the government API doesn't block the bot    
+    """
+     # FIX 3: Strictly check if the API key is actually loaded in Airflow's environment
+    api_key = os.getenv("CPCB_API_KEY")
+    if not api_key:
+        raise ValueError("CRITICAL: CPCB_API_KEY is None! Airflow is not loading your .env file.")
 
     params = {
-        "api-key": os.getenv("CPCB_API_KEY"),
+        "api-key": api_key,
         "format": "json",
         "limit": limit,
         "filters[city]": city,
     }
+    
+    # FIX 4: Fake a standard browser User-Agent so the government API doesn't block the bot
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
 
     for attempt in range(max_retries):
         try:
-            resp = requests.get(CPCB_BASE_URL, params=params, headers=headers, timeout=30)
+            # Added headers=headers here
+            resp = requests.get(CPCB_BASE_URL, params=params, headers=headers, timeout=45) # Increased timeout to 45s
+            
             if resp.status_code == 429:
                 wait = 5 * (attempt + 1)
                 print(f"  CPCB rate limited on {city}. Waiting {wait}s...")
                 time.sleep(wait)
                 continue
+                
             resp.raise_for_status()
             return resp.json().get("records", [])
+            
         except requests.exceptions.RequestException as e:
             wait = 5 * (attempt + 1)
             print(f"  CPCB request failed for {city} (attempt {attempt + 1}/{max_retries}): {e}. "
@@ -547,12 +571,24 @@ def _save(df, table_name="raw_aqi_readings"):
     of append mode -- previously this meant a duplicate header line got
     injected every hour when running without Postgres. Now the header is
     only written the first time the file is created.
+
+    FIX #7: df.to_sql() was passed the raw SQLAlchemy Engine directly.
+    Depending on the exact pandas/SQLAlchemy versions installed (which can
+    easily differ between environments -- e.g. the Airflow venv vs. a
+    regular project venv), pandas can fail to recognize an Engine as a
+    proper SQLAlchemy connectable and falls back to a legacy code path
+    that expects a raw DBAPI connection with a .cursor() method, which an
+    Engine doesn't have -- producing "AttributeError: 'Engine' object has
+    no attribute 'cursor'". Passing an explicit Connection (via
+    engine.begin(), which also wraps the write in a transaction) avoids
+    that detection path entirely.
     """
     db_url = os.getenv("DATABASE_URL")
     if db_url:
         from sqlalchemy import create_engine
         engine = create_engine(db_url)
-        df.to_sql(table_name, engine, if_exists="append", index=False)
+        with engine.begin() as conn:
+            df.to_sql(table_name, conn, if_exists="append", index=False)
         print(f"Written to Postgres table '{table_name}'.")
     else:
         out_path = f"{table_name}.csv"
