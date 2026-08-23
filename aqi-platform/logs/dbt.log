@@ -1,0 +1,76 @@
+[0m23:54:15.511411 [debug] [MainThread]: Sending event: {'category': 'dbt', 'action': 'invocation', 'label': 'start', 'context': [<snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x0000020C42DD74D0>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x0000020C40794B90>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x0000020C456BB890>]}
+
+
+============================== 23:54:15.520794 | d34a3798-be22-4147-9845-0ebe0b2b777f ==============================
+[0m23:54:15.520794 [info ] [MainThread]: Running with dbt=1.12.0-rc2
+[0m23:54:15.522043 [debug] [MainThread]: running dbt with arguments {'static_parser': 'True', 'no_print': 'None', 'version_check': 'True', 'target_path': 'None', 'maximum_seed_size_mib': '1', 'warn_error_options': 'WarnErrorOptionsV2(error=[], warn=[], silence=[])', 'printer_width': '80', 'write_json': 'True', 'empty': 'None', 'log_cache_events': 'False', 'introspect': 'True', 'cache_selected_only': 'False', 'fail_fast': 'False', 'debug': 'False', 'log_format': 'default', 'partial_parse': 'True', 'send_anonymous_usage_stats': 'True', 'quiet': 'False', 'warn_error': 'None', 'profiles_dir': 'C:\\Users\\5510s\\.dbt', 'use_colors': 'True', 'invocation_command': 'dbt init aqi_transform', 'indirect_selection': 'eager', 'use_experimental_parser': 'False', 'log_path': 'logs'}
+[0m23:54:15.565120 [info ] [MainThread]: Creating dbt configuration folder at C:\Users\5510s\.dbt
+[0m23:54:15.568637 [debug] [MainThread]: Starter project path: C:\Users\5510s\Downloads\Data Projects\aqi-platform\venv\Lib\site-packages\dbt\include\starter_project
+[0m23:54:15.610082 [info ] [MainThread]: Setting up your profile.
+[0m23:56:00.280002 [info ] [MainThread]: Profile aqi_transform written to C:\Users\5510s\.dbt\profiles.yml using target's profile_template.yml and your supplied values.
+[0m23:56:00.283754 [info ] [MainThread]: Running dbt debug to validate the project...
+[0m23:56:00.284953 [info ] [MainThread]: dbt version: 1.12.0-rc2
+[0m23:56:00.285725 [info ] [MainThread]: python version: 3.14.2
+[0m23:56:00.286129 [info ] [MainThread]: python path: C:\Users\5510s\Downloads\Data Projects\aqi-platform\venv\Scripts\python.exe
+[0m23:56:00.286513 [info ] [MainThread]: os info: Windows-11-10.0.26200-SP0
+[0m23:56:00.335266 [info ] [MainThread]: Using profiles dir at C:\Users\5510s\.dbt
+[0m23:56:00.336176 [info ] [MainThread]: Using profiles.yml file at C:\Users\5510s\.dbt\profiles.yml
+[0m23:56:00.337118 [info ] [MainThread]: Using dbt_project.yml file at C:\Users\5510s\Downloads\Data Projects\aqi-platform\aqi_transform\dbt_project.yml
+[0m23:56:00.338579 [info ] [MainThread]: adapter type: postgres
+[0m23:56:00.339188 [info ] [MainThread]: adapter version: 1.10.2
+[0m23:56:00.481054 [info ] [MainThread]: Configuration:
+[0m23:56:00.481650 [info ] [MainThread]:   profiles.yml file [[32mOK found and valid[0m]
+[0m23:56:00.482187 [info ] [MainThread]:   dbt_project.yml file [[32mOK found and valid[0m]
+[0m23:56:00.482606 [info ] [MainThread]: Required dependencies:
+[0m23:56:00.483063 [debug] [MainThread]: Executing "git --help"
+[0m23:56:00.608786 [debug] [MainThread]: STDOUT: "b"usage: git [-v | --version] [-h | --help] [-C <path>] [-c <name>=<value>]\n           [--exec-path[=<path>]] [--html-path] [--man-path] [--info-path]\n           [-p | --paginate | -P | --no-pager] [--no-replace-objects] [--no-lazy-fetch]\n           [--no-optional-locks] [--no-advice] [--bare] [--git-dir=<path>]\n           [--work-tree=<path>] [--namespace=<name>] [--config-env=<name>=<envvar>]\n           <command> [<args>]\n\nThese are common Git commands used in various situations:\n\nstart a working area (see also: git help tutorial)\n   clone      Clone a repository into a new directory\n   init       Create an empty Git repository or reinitialize an existing one\n\nwork on the current change (see also: git help everyday)\n   add        Add file contents to the index\n   mv         Move or rename a file, a directory, or a symlink\n   restore    Restore working tree files\n   rm         Remove files from the working tree and from the index\n\nexamine the history and state (see also: git help revisions)\n   bisect     Use binary search to find the commit that introduced a bug\n   diff       Show changes between commits, commit and working tree, etc\n   grep       Print lines matching a pattern\n   log        Show commit logs\n   show       Show various types of objects\n   status     Show the working tree status\n\ngrow, mark and tweak your common history\n   backfill   Download missing objects in a partial clone\n   branch     List, create, or delete branches\n   commit     Record changes to the repository\n   history    EXPERIMENTAL: Rewrite history\n   merge      Join two or more development histories together\n   rebase     Reapply commits on top of another base tip\n   reset      Set `HEAD` or the index to a known state\n   switch     Switch branches\n   tag        Create, list, delete or verify tags\n\ncollaborate (see also: git help workflows)\n   fetch      Download objects and refs from another repository\n   pull       Fetch from and integrate with another repository or a local branch\n   push       Update remote refs along with associated objects\n\n'git help -a' and 'git help -g' list available subcommands and some\nconcept guides. See 'git help <command>' or 'git help <concept>'\nto read about a specific subcommand or concept.\nSee 'git help git' for an overview of the system.\n""
+[0m23:56:00.609315 [debug] [MainThread]: STDERR: "b''"
+[0m23:56:00.609756 [info ] [MainThread]:  - git [[32mOK found[0m]
+
+[0m23:56:00.610201 [info ] [MainThread]: Connection:
+[0m23:56:00.610571 [info ] [MainThread]:   host: 172.22.144.1
+[0m23:56:00.610905 [info ] [MainThread]:   port: 5432
+[0m23:56:00.611196 [info ] [MainThread]:   user: postgres
+[0m23:56:00.611475 [info ] [MainThread]:   database: aqi
+[0m23:56:00.611761 [info ] [MainThread]:   schema: public
+[0m23:56:00.612029 [info ] [MainThread]:   connect_timeout: 10
+[0m23:56:00.612302 [info ] [MainThread]:   role: None
+[0m23:56:00.612580 [info ] [MainThread]:   search_path: None
+[0m23:56:00.612848 [info ] [MainThread]:   keepalives_idle: 0
+[0m23:56:00.613111 [info ] [MainThread]:   sslmode: None
+[0m23:56:00.613365 [info ] [MainThread]:   sslcert: None
+[0m23:56:00.613656 [info ] [MainThread]:   sslkey: None
+[0m23:56:00.613958 [info ] [MainThread]:   sslrootcert: None
+[0m23:56:00.614246 [info ] [MainThread]:   application_name: dbt
+[0m23:56:00.614536 [info ] [MainThread]:   retries: 1
+[0m23:56:00.615132 [info ] [MainThread]: Registered adapter: postgres=1.10.2
+[0m23:56:00.826912 [debug] [MainThread]: Acquiring new postgres connection 'debug'
+[0m23:56:00.940544 [debug] [MainThread]: Using postgres connection "debug"
+[0m23:56:00.940934 [debug] [MainThread]: On debug: select 1 as id
+[0m23:56:00.941199 [debug] [MainThread]: Opening a new connection, currently in state init
+[0m23:56:00.983835 [debug] [MainThread]: SQL status: SELECT 1 in 0.043 seconds
+[0m23:56:00.984746 [debug] [MainThread]: On debug: Close
+[0m23:56:00.985175 [info ] [MainThread]:   Connection test: [[32mOK connection ok[0m]
+
+[0m23:56:00.985616 [info ] [MainThread]: [32mAll checks passed![0m
+[0m23:56:00.986155 [info ] [MainThread]: Your new dbt project "aqi_transform" was created!
+Initialized new project in C:\Users\5510s\Downloads\Data Projects\aqi-platform\aqi_transform\aqi_transform
+
+For more information on how to configure the profiles.yml file,
+please consult the dbt documentation here:
+
+  https://docs.getdbt.com/docs/configure-your-profile
+
+One more thing:
+
+Need help? Don't hesitate to reach out to us via GitHub issues or on Slack:
+
+  https://community.getdbt.com/
+
+Happy modeling!
+
+[0m23:56:00.987079 [debug] [MainThread]: Command `dbt init` succeeded at 23:56:00.986943 after 105.76 seconds
+[0m23:56:00.987408 [debug] [MainThread]: Connection 'debug' was properly closed.
+[0m23:56:00.987874 [debug] [MainThread]: Sending event: {'category': 'dbt', 'action': 'invocation', 'label': 'end', 'context': [<snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x0000020C45548640>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x0000020C45D671D0>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x0000020C433BA030>]}
+[0m23:56:00.988317 [debug] [MainThread]: Flushing usage events
+[0m23:56:02.636363 [debug] [MainThread]: An error was encountered while trying to flush usage events

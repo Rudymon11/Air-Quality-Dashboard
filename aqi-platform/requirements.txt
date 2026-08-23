@@ -1,6 +1,7 @@
 requests
 pandas
 apache-airflow
+jupyter
 dbt-postgres
 streamlit
 prophet

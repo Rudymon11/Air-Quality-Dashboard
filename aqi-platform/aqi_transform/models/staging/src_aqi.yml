@@ -1,0 +1,18 @@
+version: 2
+
+sources:
+  - name: raw
+    database: aqi
+    schema: public
+    tables:
+      - name: raw_aqi_readings
+        columns:
+          - name: city
+            tests:
+              - not_null
+          - name: pollutant
+            tests:
+              - not_null
+          - name: value
+            tests:
+              - not_null
