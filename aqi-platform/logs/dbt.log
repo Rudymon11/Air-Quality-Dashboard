@@ -74,3 +74,18 @@ Happy modeling!
 [0m23:56:00.987874 [debug] [MainThread]: Sending event: {'category': 'dbt', 'action': 'invocation', 'label': 'end', 'context': [<snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x0000020C45548640>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x0000020C45D671D0>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x0000020C433BA030>]}
 [0m23:56:00.988317 [debug] [MainThread]: Flushing usage events
 [0m23:56:02.636363 [debug] [MainThread]: An error was encountered while trying to flush usage events
+[0m23:53:05.821829 [debug] [MainThread]: Sending event: {'category': 'dbt', 'action': 'invocation', 'label': 'start', 'context': [<snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x0000026686F96900>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x0000026684928F50>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x000002668989BED0>]}
+
+
+============================== 23:53:05.831292 | 0b87313d-8d65-4247-94a4-538680be3424 ==============================
+[0m23:53:05.831292 [info ] [MainThread]: Running with dbt=1.12.0-rc2
+[0m23:53:05.832420 [debug] [MainThread]: running dbt with arguments {'version_check': 'True', 'no_print': 'None', 'static_parser': 'True', 'target_path': 'None', 'warn_error_options': 'WarnErrorOptionsV2(error=[], warn=[], silence=[])', 'maximum_seed_size_mib': '1', 'printer_width': '80', 'write_json': 'True', 'introspect': 'True', 'log_cache_events': 'False', 'empty': 'False', 'cache_selected_only': 'False', 'log_format': 'default', 'debug': 'False', 'fail_fast': 'False', 'partial_parse': 'True', 'send_anonymous_usage_stats': 'True', 'quiet': 'False', 'warn_error': 'None', 'profiles_dir': 'C:\\Users\\5510s\\.dbt', 'indirect_selection': 'eager', 'invocation_command': 'dbt run', 'use_colors': 'True', 'use_experimental_parser': 'False', 'log_path': 'logs'}
+[0m23:53:05.833303 [error] [MainThread]: [[31mERROR[0m]: Encountered an error:
+Runtime Error
+  No dbt_project.yml found at expected path C:\Users\5510s\Downloads\Data Projects\aqi-platform\dbt_project.yml
+  Verify that each entry within packages.yml (and their transitive dependencies) contains a file named dbt_project.yml
+  
+[0m23:53:05.835893 [debug] [MainThread]: Command `dbt run` failed at 23:53:05.835308 after 0.42 seconds
+[0m23:53:05.837434 [debug] [MainThread]: Sending event: {'category': 'dbt', 'action': 'invocation', 'label': 'end', 'context': [<snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x0000026689771E00>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x0000026689914830>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x00000266898DCF30>]}
+[0m23:53:05.839038 [debug] [MainThread]: Flushing usage events
+[0m23:53:07.412637 [debug] [MainThread]: An error was encountered while trying to flush usage events

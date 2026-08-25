@@ -2,10 +2,13 @@ requests
 pandas
 apache-airflow
 jupyter
+ipykernel 
 dbt-postgres
 streamlit
+statsmodels
 prophet
 scikit-learn
+scipy
 matplotlib
 seaborn
 psycopg2-binary

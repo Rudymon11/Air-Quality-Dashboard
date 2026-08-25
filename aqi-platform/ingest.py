@@ -84,7 +84,7 @@ import time
 import json  # FIX #3, #4: used for the location cache and backfill progress file
 import requests
 import pandas as pd
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from dotenv import load_dotenv
 from pathlib import Path
 
@@ -308,10 +308,27 @@ def _fetch_openaq_location_readings(location_id, location_name):
     """
     data = _openaq_get(f"{OPENAQ_BASE_URL}/locations/{location_id}/sensors")
     rows = []
+    
+    now_utc = datetime.now(timezone.utc)
+    max_age = timedelta(hours=48)
+    
     for s in data.get("results", []):
         latest = s.get("latest")
         if not latest:
             continue
+            
+        reading_time_str = latest.get("datetime", {}).get("utc")
+        if not reading_time_str:
+            continue
+            
+        # ZOMBIE SENSOR CHECK: Drop data older than 48 hours
+        try:
+            reading_time = datetime.fromisoformat(reading_time_str.replace("Z", "+00:00"))
+            if now_utc - reading_time > max_age:
+                continue  # Skip stale "latest" from a dead/inactive sensor
+        except ValueError:
+            continue
+            
         parameter = s.get("parameter", {})
         rows.append({
             "city": location_name,
@@ -319,9 +336,9 @@ def _fetch_openaq_location_readings(location_id, location_name):
             "pollutant": parameter.get("name"),
             "value": latest.get("value"),
             "unit": parameter.get("units"),
-            "reading_time_utc": latest.get("datetime", {}).get("utc"),
+            "reading_time_utc": reading_time_str,
             "source": "OpenAQ",
-            "ingested_at": datetime.now(timezone.utc),
+            "ingested_at": now_utc,
         })
     return rows
 
