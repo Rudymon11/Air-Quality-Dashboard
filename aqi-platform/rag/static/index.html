@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>AQI Intelligence Platform</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"/>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet"/>
+  <link href="style.css" rel="stylesheet"/>
+</head>
+<body>
+
+<!-- Navbar -->
+<nav class="navbar navbar-dark navbar-expand-lg px-4">
+  <span class="navbar-brand fw-bold"><i class="bi bi-wind me-2"></i>AQI Intelligence Platform</span>
+  <div class="ms-auto d-flex gap-2">
+    <button class="nav-btn active" onclick="showPage('explorer')">
+      <i class="bi bi-table me-1"></i>Data Explorer
+    </button>
+    <button class="nav-btn" onclick="showPage('qa')">
+      <i class="bi bi-chat-dots me-1"></i>Q&amp;A
+    </button>
+  </div>
+</nav>
+
+<!-- DATA EXPLORER PAGE -->
+<div id="page-explorer" class="page-content">
+  <div class="container-fluid px-4 py-4">
+
+    <!-- Header -->
+    <div class="mb-4">
+      <h4 class="fw-bold mb-1">Data Explorer</h4>
+      <p class="text-muted small mb-0">Browse 11M+ sensor readings across 18 Indian cities. Read-only view.</p>
+    </div>
+
+    <!-- Tab switcher -->
+    <ul class="nav nav-tabs mb-4" id="explorerTabs">
+      <li class="nav-item">
+        <button class="nav-link active" onclick="switchTable('daily')">
+          <i class="bi bi-bar-chart me-1"></i>Daily Aggregates
+        </button>
+      </li>
+      <li class="nav-item">
+        <button class="nav-link" onclick="switchTable('readings')">
+          <i class="bi bi-activity me-1"></i>Raw Readings
+        </button>
+      </li>
+    </ul>
+
+    <!-- Filters -->
+    <div class="filter-bar mb-3 p-3">
+      <div class="row g-2 align-items-end">
+        <div class="col-md-2">
+          <label class="form-label small fw-semibold">City</label>
+          <select class="form-select form-select-sm" id="filter-city">
+            <option value="">All Cities</option>
+          </select>
+        </div>
+        <div class="col-md-2" id="filter-pollutant-wrap">
+          <label class="form-label small fw-semibold">Pollutant</label>
+          <select class="form-select form-select-sm" id="filter-pollutant">
+            <option value="">All</option>
+            <option>PM2.5</option><option>PM10</option><option>SO2</option>
+            <option>NO2</option><option>NO</option><option>CO</option>
+            <option>NH3</option><option>O3</option>
+          </select>
+        </div>
+        <div class="col-md-2" id="filter-date-from-wrap">
+          <label class="form-label small fw-semibold">From</label>
+          <input type="date" class="form-control form-control-sm" id="filter-date-from" value="2026-04-15"/>
+        </div>
+        <div class="col-md-2" id="filter-date-to-wrap">
+          <label class="form-label small fw-semibold">To</label>
+          <input type="date" class="form-control form-control-sm" id="filter-date-to" value="2026-08-25"/>
+        </div>
+        <div class="col-md-2" id="filter-station-wrap" style="display:none">
+          <label class="form-label small fw-semibold">Station</label>
+          <input type="text" class="form-control form-control-sm" id="filter-station" placeholder="Search station..."/>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label small fw-semibold">Source</label>
+          <select class="form-select form-select-sm" id="filter-source">
+            <option value="">All Sources</option>
+            <option value="CPCB">CPCB</option>
+            <option value="OpenAQ">OpenAQ</option>
+          </select>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label small fw-semibold">Rows</label>
+          <select class="form-select form-select-sm" id="filter-limit">
+            <option value="50">50</option>
+            <option value="100" selected>100</option>
+            <option value="250">250</option>
+            <option value="500">500</option>
+          </select>
+        </div>
+        <div class="col-md-auto">
+          <button class="btn btn-primary btn-sm" onclick="loadTable(0)">
+            <i class="bi bi-search me-1"></i>Search
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Stats bar -->
+    <div class="stats-bar mb-3 px-3 py-2 d-flex align-items-center gap-4">
+      <span class="small"><i class="bi bi-database me-1 text-primary"></i>Total matching: <strong id="total-count">—</strong></span>
+      <span class="small"><i class="bi bi-eye me-1 text-primary"></i>Showing: <strong id="showing-count">—</strong></span>
+      <span class="small text-muted ms-auto"><i class="bi bi-lock me-1"></i>Read-only</span>
+    </div>
+
+    <!-- Table -->
+    <div class="table-wrapper">
+      <div id="table-loading" class="text-center py-5" style="display:none">
+        <div class="spinner-border text-primary" role="status"></div>
+        <p class="mt-2 text-muted small">Querying database...</p>
+      </div>
+      <div class="table-responsive" id="table-container">
+        <table class="table table-hover table-sm mb-0" id="data-table">
+          <thead id="table-head"></thead>
+          <tbody id="table-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Pagination -->
+    <div class="d-flex justify-content-between align-items-center mt-3">
+      <button class="btn btn-outline-secondary btn-sm" id="btn-prev" onclick="changePage(-1)" disabled>
+        <i class="bi bi-chevron-left"></i> Prev
+      </button>
+      <span class="small text-muted" id="page-info"></span>
+      <button class="btn btn-outline-secondary btn-sm" id="btn-next" onclick="changePage(1)" disabled>
+        Next <i class="bi bi-chevron-right"></i>
+      </button>
+    </div>
+
+  </div>
+</div>
+
+<!-- Q&A PAGE -->
+<div id="page-qa" class="page-content" style="display:none">
+  <div class="container py-4" style="max-width:860px">
+
+    <div class="mb-4">
+      <h4 class="fw-bold mb-1">Ask the Data</h4>
+      <p class="text-muted small mb-0">Questions are answered using real sensor data retrieved from the warehouse. Every number is grounded in actual readings.</p>
+    </div>
+
+    <!-- Input -->
+    <div class="qa-input-wrap mb-4">
+      <div class="input-group">
+        <input type="text" class="form-control" id="qa-input"
+               placeholder="e.g. why is Guwahati's air quality bad? or compare Delhi and Mumbai PM2.5"
+               onkeydown="if(event.key==='Enter') askQuestion()"/>
+        <button class="btn btn-primary px-4" onclick="askQuestion()">
+          <i class="bi bi-send me-1"></i>Ask
+        </button>
+        <button class="btn btn-outline-secondary" onclick="clearConversation()" title="Clear conversation">
+          <i class="bi bi-arrow-counterclockwise"></i>
+        </button>
+      </div>
+      <div class="d-flex gap-2 mt-2 flex-wrap" id="example-chips">
+        <span class="chip" onclick="setQuery(this)">Why is Guwahati's air quality bad?</span>
+        <span class="chip" onclick="setQuery(this)">Compare Delhi and Mumbai PM2.5 trends</span>
+        <span class="chip" onclick="setQuery(this)">Which city had the worst SO2?</span>
+        <span class="chip" onclick="setQuery(this)">How does humidity affect pollution in Chennai?</span>
+      </div>
+    </div>
+
+    <!-- Loading -->
+    <div id="qa-loading" style="display:none" class="text-center py-4">
+      <div class="spinner-border text-primary" role="status"></div>
+      <p class="mt-2 text-muted small">Retrieving data and generating answer...</p>
+    </div>
+
+    <!-- Chat thread -->
+    <div id="qa-thread" class="mb-4"></div>
+
+    <!-- Latest sources + retrieved table (updates each turn) -->
+    <div id="qa-result" style="display:none">
+
+      <!-- Sources -->
+      <div class="mb-3">
+        <p class="small fw-semibold text-muted mb-2"><i class="bi bi-database-check me-1"></i>Retrieved from database</p>
+        <div id="sources-container" class="d-flex flex-wrap gap-2"></div>
+      </div>
+
+      <!-- Retrieved rows table -->
+      <div class="mb-4">
+        <p class="small fw-semibold text-muted mb-2"><i class="bi bi-table me-1"></i>Raw data used to answer</p>
+        <div class="table-responsive retrieved-table-wrap">
+          <table class="table table-sm table-hover mb-0" id="retrieved-table">
+            <thead id="retrieved-thead"></thead>
+            <tbody id="retrieved-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

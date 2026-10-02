@@ -28,8 +28,8 @@ def _get_model():
 
 def retrieve(query: str, conn, k: int = 4) -> list[dict]:
     """
-    Returns the top-k summaries most semantically similar to the query.
-    Each result is a dict with keys: city, week_start, week_end, summary, distance.
+    Returns up to k summaries most semantically similar to the query,
+    with at most one summary per city (best match per city, ranked by distance).
     """
     model = _get_model()
     query_embedding = model.encode(query, normalize_embeddings=True).astype('float32')
@@ -37,10 +37,13 @@ def retrieve(query: str, conn, k: int = 4) -> list[dict]:
 
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute("""
-            SELECT city, week_start, week_end, summary,
+            SELECT DISTINCT ON (city) city, week_start, week_end, summary,
                    embedding <=> %s::vector AS distance
             FROM aqi_summaries
-            ORDER BY distance ASC
-            LIMIT %s;
-        """, (vec_str, k))
-        return cur.fetchall()
+            ORDER BY city, distance ASC
+        """, (vec_str,))
+        rows = cur.fetchall()
+
+    # sort all best-per-city results by distance, return top k
+    rows.sort(key=lambda r: r['distance'])
+    return rows[:k]

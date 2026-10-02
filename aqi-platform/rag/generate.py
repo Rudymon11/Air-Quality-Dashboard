@@ -21,7 +21,8 @@ Rules:
 - You may use your general knowledge of air pollution science to explain causes and health effects.
 - Never invent numbers not present in the retrieved data.
 - Always cite which city and week each number comes from.
-- Be concise and direct."""
+- Be concise and direct.
+- Do not use markdown formatting such as **bold**, *italic*, or bullet points with asterisks. Write in plain prose only."""
 
 
 def _get_client():
@@ -31,9 +32,10 @@ def _get_client():
     return _client
 
 
-def generate(query: str, retrieved: list[dict]) -> str:
+def generate(query: str, retrieved: list[dict], history: list[dict] | None = None) -> str:
     """
     Generates a grounded answer using retrieved summaries as context.
+    history: list of {"role": "user"|"assistant", "content": str} prior turns.
     """
     if not retrieved:
         context = "No relevant sensor data found for this query."
@@ -48,12 +50,14 @@ def generate(query: str, retrieved: list[dict]) -> str:
 
 Question: {query}"""
 
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    if history:
+        messages.extend(history)
+    messages.append({"role": "user", "content": user_message})
+
     response = _get_client().chat.completions.create(
         model="openai/gpt-oss-120b",
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user",   "content": user_message},
-        ],
+        messages=messages,
         temperature=0.2,
     )
     return response.choices[0].message.content

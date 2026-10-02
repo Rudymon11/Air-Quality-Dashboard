@@ -32,6 +32,19 @@ def run_ingestion_task():
         print("No new data fetched.")
 
 
+def refresh_materialized_view():
+    import psycopg2
+    from dotenv import load_dotenv
+    from pathlib import Path
+    load_dotenv(dotenv_path=Path(PROJECT_DIR) / ".env")
+    conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+    conn.autocommit = True
+    with conn.cursor() as cur:
+        cur.execute("REFRESH MATERIALIZED VIEW CONCURRENTLY stg_aqi_readings_mat")
+    conn.close()
+    print("stg_aqi_readings_mat refreshed.")
+
+
 default_args = {
     "owner": "rudy",
     "depends_on_past": False,
@@ -53,5 +66,13 @@ with DAG(
     ingest_task = PythonOperator(
         task_id="fetch_and_save_aqi",
         python_callable=run_ingestion_task,
-        execution_timeout=timedelta(minutes=20),  # fail fast instead of hanging on a stuck API call
+        execution_timeout=timedelta(minutes=20),
     )
+
+    refresh_task = PythonOperator(
+        task_id="refresh_stg_mat_view",
+        python_callable=refresh_materialized_view,
+        execution_timeout=timedelta(minutes=30),
+    )
+
+    ingest_task >> refresh_task
