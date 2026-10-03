@@ -26,24 +26,38 @@ def _get_model():
     return _model
 
 
-def retrieve(query: str, conn, k: int = 4) -> list[dict]:
+def retrieve(query: str, conn, k: int = 18, cities: list | None = None) -> list[dict]:
     """
     Returns up to k summaries most semantically similar to the query,
     with at most one summary per city (best match per city, ranked by distance).
+    If cities is provided, only searches within those cities.
     """
     model = _get_model()
     query_embedding = model.encode(query, normalize_embeddings=True).astype('float32')
     vec_str = '[' + ','.join(str(x) for x in query_embedding.tolist()) + ']'
 
-    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        cur.execute("""
+    if cities:
+        placeholders = ','.join(['%s'] * len(cities))
+        sql = f"""
+            SELECT DISTINCT ON (city) city, week_start, week_end, summary,
+                   embedding <=> %s::vector AS distance
+            FROM aqi_summaries
+            WHERE city IN ({placeholders})
+            ORDER BY city, distance ASC
+        """
+        params = (vec_str, *cities)
+    else:
+        sql = """
             SELECT DISTINCT ON (city) city, week_start, week_end, summary,
                    embedding <=> %s::vector AS distance
             FROM aqi_summaries
             ORDER BY city, distance ASC
-        """, (vec_str,))
+        """
+        params = (vec_str,)
+
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(sql, params)
         rows = cur.fetchall()
 
-    # sort all best-per-city results by distance, return top k
     rows.sort(key=lambda r: r['distance'])
     return rows[:k]

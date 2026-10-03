@@ -239,3 +239,18 @@ body {
   align-self: flex-start;
   border-bottom-left-radius: 3px;
 }
+.route-tag {
+  display: inline-block;
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--primary);
+  border: 1px solid var(--primary);
+  border-radius: 4px;
+  padding: 1px 6px;
+  margin-bottom: 6px;
+  margin-right: 6px;
+  vertical-align: middle;
+  opacity: 0.75;
+}

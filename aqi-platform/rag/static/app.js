@@ -177,6 +177,9 @@ function changePage(dir) {
 // Q&A
 // ---------------------------------------------------------------------------
 let conversationHistory = [];
+const TOKEN_LIMIT = 131072;
+const TOKEN_WARN  = 100000;
+let totalTokensUsed = 0;
 
 function setQuery(el) {
   document.getElementById('qa-input').value = el.textContent;
@@ -184,9 +187,11 @@ function setQuery(el) {
 
 function clearConversation() {
   conversationHistory = [];
+  totalTokensUsed = 0;
   document.getElementById('qa-thread').innerHTML = '';
   document.getElementById('qa-result').style.display = 'none';
   document.getElementById('qa-input').value = '';
+  document.getElementById('token-warning').style.display = 'none';
 }
 
 function askQuestion() {
@@ -215,14 +220,30 @@ function askQuestion() {
       conversationHistory.push({ role: 'user',      content: query });
       conversationHistory.push({ role: 'assistant', content: data.answer });
 
+      // Track tokens and warn if approaching limit
+      if (data.tokens_used) {
+        totalTokensUsed = data.tokens_used;  // Groq returns cumulative context size
+        if (totalTokensUsed >= TOKEN_WARN) {
+          const pct = Math.round((totalTokensUsed / TOKEN_LIMIT) * 100);
+          const warn = document.getElementById('token-warning');
+          warn.textContent = `Context window ${pct}% full (${totalTokensUsed.toLocaleString()} / ${TOKEN_LIMIT.toLocaleString()} tokens). Start a new chat soon to avoid cutoff.`;
+          warn.style.display = '';
+        }
+      }
+
       // Append assistant bubble
+      const routeTag = data.route === 'needs_exact_lookup' ? 'exact lookup'
+                     : data.route === 'both'               ? 'exact + trend'
+                     : 'trend context';
       thread.insertAdjacentHTML('beforeend', `
-        <div class="chat-bubble assistant-bubble mb-3">${data.answer}</div>
+        <div class="chat-bubble assistant-bubble mb-3">
+          <span class="route-tag">${routeTag}</span>${data.answer}
+        </div>
       `);
       thread.scrollTop = thread.scrollHeight;
 
       renderSources(data.sources);
-      renderRetrievedTable(data.sources);
+      renderRetrievedTable(data.sources, data.sql_rows, data.route);
       document.getElementById('qa-loading').style.display = 'none';
       document.getElementById('qa-result').style.display  = '';
     })
@@ -242,17 +263,22 @@ function renderSources(sources) {
   `).join('');
 }
 
-function renderRetrievedTable(sources) {
-  if (!sources || sources.length === 0) return;
-
-  // Parse summary text into structured rows for display
+function renderRetrievedTable(sources, sqlRows, route) {
   const thead = document.getElementById('retrieved-thead');
   const tbody = document.getElementById('retrieved-tbody');
 
-  thead.innerHTML = `<tr>
-    <th>City</th><th>Week Start</th><th>Week End</th><th>Summary</th>
-  </tr>`;
+  // for exact lookup or both: show sql rows if available
+  if (sqlRows && sqlRows.length > 0) {
+    thead.innerHTML = `<tr><th>Exact Readings Used</th></tr>`;
+    tbody.innerHTML = sqlRows.map(r =>
+      `<tr><td class="text-muted" style="white-space:normal;font-size:0.78rem">${r}</td></tr>`
+    ).join('');
+    return;
+  }
 
+  // fallback: show vector summaries
+  if (!sources || sources.length === 0) return;
+  thead.innerHTML = `<tr><th>City</th><th>Week Start</th><th>Week End</th><th>Summary</th></tr>`;
   tbody.innerHTML = sources.map(s => `
     <tr>
       <td><strong>${s.city}</strong></td>

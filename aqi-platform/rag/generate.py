@@ -32,18 +32,25 @@ def _get_client():
     return _client
 
 
-def generate(query: str, retrieved: list[dict], history: list[dict] | None = None) -> str:
+def generate(query: str, retrieved: list[dict], history: list[dict] | None = None, sql_context: str = "") -> str:
     """
-    Generates a grounded answer using retrieved summaries as context.
+    Generates a grounded answer using retrieved summaries and/or exact SQL results.
     history: list of {"role": "user"|"assistant", "content": str} prior turns.
+    sql_context: formatted exact rows from fct_city_daily_aqi (may be empty).
     """
-    if not retrieved:
-        context = "No relevant sensor data found for this query."
-    else:
-        context = "\n\n".join(
-            f"[{r['city']} | {r['week_start']} to {r['week_end']}]\n{r['summary']}"
+    parts = []
+
+    if sql_context:
+        parts.append(sql_context)
+
+    if retrieved:
+        parts.append("Weekly sensor summaries (trend context):")
+        parts.append("\n\n".join(
+            f"[{r['city']} | {r['week_start']} to {r['week_end']}]\n{r['summary'][:300]}"
             for r in retrieved
-        )
+        ))
+
+    context = "\n\n".join(parts) if parts else "No relevant sensor data found for this query."
 
     user_message = f"""Retrieved sensor data:
 {context}
@@ -60,4 +67,5 @@ Question: {query}"""
         messages=messages,
         temperature=0.2,
     )
-    return response.choices[0].message.content
+    tokens_used = response.usage.total_tokens if response.usage else 0
+    return response.choices[0].message.content, tokens_used

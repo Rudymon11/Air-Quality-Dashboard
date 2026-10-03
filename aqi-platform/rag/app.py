@@ -31,6 +31,8 @@ os.environ["HF_TOKEN"] = os.getenv("HF_TOKEN", "")
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from retrieve import retrieve
 from generate import generate
+from router import classify
+from sql_lookup import lookup
 
 FRONTEND_DIR = Path(__file__).resolve().parent / "static"
 app = Flask(__name__, static_folder=str(FRONTEND_DIR), static_url_path="", template_folder=str(FRONTEND_DIR))
@@ -64,16 +66,34 @@ def health():
 
 @app.route("/ask", methods=["POST"])
 def ask():
-    body  = request.get_json(force=True)
-    query = body.get("query", "").strip()
+    body    = request.get_json(force=True)
+    query   = body.get("query", "").strip()
     history = body.get("history", [])
     if not query:
         return jsonify({"error": "query is required"}), 400
 
     conn = get_conn()
     try:
-        results = retrieve(query, conn, k=18)
-        answer = generate(query, results, history)
+        route_info = classify(query, history)
+        route      = route_info.get("route", "needs_trend_context")
+        cities     = route_info.get("cities", [])
+        pollutants = route_info.get("pollutants", [])
+        date_from  = route_info.get("date_from")
+        date_to    = route_info.get("date_to")
+
+        retrieved  = []
+        sql_ctx    = ""
+
+        if route in ("needs_trend_context", "both"):
+            # if router identified specific cities, only retrieve those — avoids fetching all 18
+            k = len(cities) if cities else 18
+            retrieved = retrieve(query, conn, k=k, cities=cities if cities else None)
+
+        if route in ("needs_exact_lookup", "both"):
+            intent = route_info.get("intent", "data_lookup")
+            sql_ctx = lookup(conn, cities, pollutants, date_from, date_to, intent)
+
+        answer, tokens_used = generate(query, retrieved, history, sql_ctx)
         sources = [
             {
                 "city":       r["city"],
@@ -81,12 +101,18 @@ def ask():
                 "week_end":   str(r["week_end"]),
                 "summary":    r["summary"],
             }
-            for r in results
+            for r in retrieved
         ]
+        # parse sql_ctx lines into structured rows for the UI
+        sql_rows = []
+        if sql_ctx:
+            for line in sql_ctx.splitlines():
+                if line.startswith("  "):
+                    sql_rows.append(line.strip())
     finally:
         conn.close()
 
-    return jsonify({"answer": answer, "sources": sources})
+    return jsonify({"answer": answer, "sources": sources, "sql_rows": sql_rows, "route": route, "tokens_used": tokens_used})
 
 
 # ---------------------------------------------------------------------------
