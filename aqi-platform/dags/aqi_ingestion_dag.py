@@ -5,8 +5,6 @@ import pendulum
 import os
 import sys
 
-# Resolve the project directory relative to this DAG file instead of
-# hardcoding a machine-specific path -- keeps this portable across machines.
 PROJECT_DIR = os.getenv(
     "AQI_PROJECT_DIR",
     "/mnt/c/Users/5510s/Downloads/Data Projects/aqi-platform"  # fallback default
@@ -45,6 +43,60 @@ def refresh_materialized_view():
     print("stg_aqi_readings_mat refreshed.")
 
 
+def run_dbt():
+    import subprocess
+    from pathlib import Path
+    dbt_project_dir = str(Path(PROJECT_DIR) / "aqi_transform")
+    result = subprocess.run(
+        ["dbt", "run", "--project-dir", dbt_project_dir],
+        capture_output=True, text=True
+    )
+    print(result.stdout)
+    if result.returncode != 0:
+        raise RuntimeError(f"dbt run failed:\n{result.stderr}")
+
+
+def refresh_embeddings():
+    """
+    Re-embeds only when the current ISO week is not yet in aqi_summaries.
+    Runs at most once per week regardless of how often the DAG fires.
+    """
+    import psycopg2
+    import pendulum
+    from dotenv import load_dotenv
+    from pathlib import Path
+
+    load_dotenv(dotenv_path=Path(PROJECT_DIR) / ".env")
+
+    conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+    try:
+        # Current week_start (Monday) in UTC
+        current_week_start = pendulum.now("UTC").start_of("week").date()
+
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM aqi_summaries WHERE week_start = %s LIMIT 1",
+                (current_week_start,)
+            )
+            already_embedded = cur.fetchone() is not None
+
+        if already_embedded:
+            print(f"Embeddings for week {current_week_start} already exist — skipping.")
+            return
+
+        print(f"New week {current_week_start} detected — regenerating embeddings.")
+        sys.path.append(str(Path(PROJECT_DIR) / "rag"))
+        from embed import fetch_weekly_stats, upsert_summaries
+        from sentence_transformers import SentenceTransformer
+
+        model = SentenceTransformer("all-MiniLM-L6-v2")
+        rows = fetch_weekly_stats(conn)
+        print(f"Fetched {len(rows)} city-week rows.")
+        upsert_summaries(conn, rows, model)
+    finally:
+        conn.close()
+
+
 default_args = {
     "owner": "rudy",
     "depends_on_past": False,
@@ -59,8 +111,8 @@ with DAG(
     description="Hourly ingestion of CPCB and OpenAQ data",
     schedule="@hourly",
     start_date=pendulum.datetime(2024, 1, 1, tz="UTC"),
-    catchup=False,  # don't backfill runs since 2024
-    max_active_runs=1,  # prevent overlapping runs if one takes longer than an hour
+    catchup=False,
+    max_active_runs=1,
 ) as dag:
 
     ingest_task = PythonOperator(
@@ -75,4 +127,16 @@ with DAG(
         execution_timeout=timedelta(minutes=30),
     )
 
-    ingest_task >> refresh_task
+    dbt_task = PythonOperator(
+        task_id="run_dbt_models",
+        python_callable=run_dbt,
+        execution_timeout=timedelta(minutes=15),
+    )
+
+    embed_task = PythonOperator(
+        task_id="refresh_embeddings",
+        python_callable=refresh_embeddings,
+        execution_timeout=timedelta(minutes=30),
+    )
+
+    ingest_task >> refresh_task >> dbt_task >> embed_task
