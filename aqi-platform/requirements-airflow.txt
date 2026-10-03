@@ -1,0 +1,10 @@
+# Requirements for the Airflow venv (airflow_venv/)
+# Install with: pip install apache-airflow==2.10.2 -r requirements-airflow.txt
+#
+# These are the dependencies needed by DAG task functions at runtime.
+# The main project venv (venv/) uses requirements.txt instead.
+
+psycopg2-binary==2.9.12
+python-dotenv==1.2.2
+sentence-transformers==6.1.0
+pandas==2.1.4

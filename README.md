@@ -56,12 +56,28 @@ CREATE EXTENSION vector;
 
 ## Setup
 
+### Main venv (Flask server, dbt, ingestion, RAG)
+
 ```bash
 cd aqi-platform
 python -m venv venv
 venv\Scripts\activate        # Windows
 pip install -r requirements.txt
 ```
+
+### Airflow venv (WSL — run once after creating airflow_venv)
+
+Airflow runs under WSL with its own isolated venv. After the initial
+`pip install apache-airflow`, install the DAG task dependencies:
+
+```bash
+wsl
+cd "/mnt/c/Users/5510s/Downloads/Data Projects/aqi-platform"
+airflow_venv/bin/pip install -r requirements-airflow.txt
+```
+
+This installs `sentence-transformers`, `psycopg2-binary`, `python-dotenv`,
+and `pandas` into the Airflow venv so the embedding refresh task can run.
 
 Copy `.env` and fill in your credentials:
 ```
@@ -86,19 +102,25 @@ python load_backfill_to_postgres.py
 
 ### Step 2 — Live ingestion (hourly, via Airflow)
 
-Fetches current readings from CPCB and OpenAQ and appends them to `raw_aqi_readings`.
+The Airflow DAG handles the full pipeline automatically on an hourly schedule:
+1. Fetches CPCB + OpenAQ readings → `raw_aqi_readings`
+2. Refreshes `stg_aqi_readings_mat` (materialized view)
+3. Runs `dbt run` to rebuild `fct_city_daily_aqi`
+4. Re-embeds weekly summaries into pgvector (runs once per week automatically
+   — skips if the current week is already embedded)
 
 ```bash
-python ingest.py
-```
-
-To run on a schedule, start Airflow and enable the `india_aqi_ingestion` DAG:
-
-```bash
+# from WSL
 airflow standalone
 ```
 
 Then open `http://localhost:8080`, find `india_aqi_ingestion`, and toggle it on.
+
+To run ingestion manually without Airflow:
+
+```bash
+python ingest.py
+```
 
 ### Step 3 — Transform with dbt
 
@@ -128,9 +150,10 @@ python rag/setup_vector_table.py
 python rag/embed.py
 ```
 
-This generates one natural-language summary per city per week (287 total across 18 cities × 17 weeks) from `fct_city_daily_aqi`, embeds them locally using `all-MiniLM-L6-v2`, and stores them in the `aqi_summaries` pgvector table.
-
-Re-run `embed.py` whenever new weeks of data accumulate — it upserts, so no duplicates.
+This generates one natural-language summary per city per week from `stg_aqi_readings`,
+embeds them locally using `all-MiniLM-L6-v2`, and stores them in the `aqi_summaries`
+pgvector table. After this initial run, the Airflow DAG refreshes embeddings
+automatically each week — no need to re-run manually.
 
 **Start the Q&A interface:**
 ```bash
@@ -163,7 +186,8 @@ aqi-platform/
 │   ├── generate.py              # Groq generation with retrieved context
 │   └── cli.py                   # interactive Q&A loop
 ├── eda.ipynb                    # exploratory data analysis notebook
-├── requirements.txt
+├── requirements.txt             # main venv dependencies
+├── requirements-airflow.txt     # airflow venv dependencies (DAG task runtime)
 └── .env                         # credentials (never commit this)
 ```
 
