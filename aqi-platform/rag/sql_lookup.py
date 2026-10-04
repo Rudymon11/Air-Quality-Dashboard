@@ -1,135 +1,112 @@
-"""
-sql_lookup.py
+"""Exact, filterable SQL lookups for the RAG answer path."""
 
-Runs a direct parameterised SQL query against stg_aqi_readings_mat
-for exact data lookups (specific city, pollutant, date range).
-Returns a plain-text context block for the generation step.
-"""
-
-import psycopg2
 import psycopg2.extras
 
+VALID_SOURCES = {"CPCB", "OpenAQ", "OpenAQ_AWS_Archive"}
 
-def _city_ranking(conn, pollutants: list, date_from: str, date_to: str) -> str:
-    if not pollutants:
-        return ""
-    filters = ["pollutant = %s", "pollutant_value IS NOT NULL"]
-    params = [pollutants[0]]
+
+def _result(context="", rows_used=0, filters=None):
+    return {"context": context, "rows_used": int(rows_used or 0), "filters": filters or {}}
+
+
+def _build_filters(cities, stations, pollutants, sources, date_from, date_to):
+    clauses, params = [], []
+    for column, values in (("city", cities), ("station", stations),
+                           ("pollutant", pollutants), ("source", sources)):
+        if values:
+            if column == "source":
+                invalid = set(values) - VALID_SOURCES
+                if invalid:
+                    raise ValueError(f"Unsupported source filter: {sorted(invalid)}")
+            clauses.append(f"{column} IN (" + ",".join(["%s"] * len(values)) + ")")
+            params.extend(values)
     if date_from:
-        filters.append("reading_time_utc >= %s")
+        clauses.append("reading_time_utc >= %s")
         params.append(date_from)
     if date_to:
-        filters.append("reading_time_utc <= %s")
+        clauses.append("reading_time_utc <= %s")
         params.append(date_to + " 23:59:59")
-    sql = f"""
-        SELECT city,
-               ROUND(AVG(pollutant_value)::numeric, 2) AS avg_value,
-               unit,
-               COUNT(*) AS reading_count
+    return clauses, params
+
+
+def _city_ranking(conn, cities, stations, pollutants, sources, date_from, date_to):
+    if not pollutants:
+        return _result()
+    clauses, params = _build_filters(cities, stations, pollutants[:1], sources, date_from, date_to)
+    clauses.append("pollutant_value IS NOT NULL")
+    query = f"""
+        SELECT city, ROUND(AVG(pollutant_value)::numeric, 2) AS avg_value,
+               unit, COUNT(*) AS reading_count
         FROM stg_aqi_readings_mat
-        WHERE {" AND ".join(filters)}
+        WHERE {' AND '.join(clauses)}
         GROUP BY city, unit
         HAVING COUNT(*) > 10
         ORDER BY avg_value DESC
     """
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        cur.execute(sql, params)
+        cur.execute(query, params)
         rows = cur.fetchall()
     if not rows:
-        return ""
-    lines = [f"City ranking by average {pollutants[0]} (all cities, NULLs excluded):"]
-    for i, r in enumerate(rows, 1):
-        lines.append(f"  {i}. {r['city']}: avg={r['avg_value']} {r['unit']} ({r['reading_count']} readings)")
-    return "\n".join(lines)
+        return _result()
+    source_label = ", ".join(sources) if sources else "all sources"
+    lines = [f"City ranking by average {pollutants[0]} ({source_label}, NULLs excluded):"]
+    for i, row in enumerate(rows, 1):
+        lines.append(f"  {i}. {row['city']}: avg={row['avg_value']} {row['unit']} ({row['reading_count']} readings)")
+    return _result("\n".join(lines), sum(row["reading_count"] for row in rows),
+                   {"cities": cities, "stations": stations, "pollutants": pollutants,
+                    "sources": sources, "date_from": date_from, "date_to": date_to})
 
 
-def _station_count(conn, cities: list) -> str:
-    filters, params = [], []
-    if cities:
-        placeholders = ",".join(["%s"] * len(cities))
-        filters.append(f"city IN ({placeholders})")
-        params.extend(cities)
-    where = ("WHERE " + " AND ".join(filters)) if filters else ""
-    sql = f"""
-        SELECT city, COUNT(DISTINCT station) AS station_count
-        FROM stg_aqi_readings_mat
-        {where}
-        GROUP BY city
-        ORDER BY city
+def _station_count(conn, cities, stations, sources, date_from, date_to):
+    clauses, params = _build_filters(cities, stations, [], sources, date_from, date_to)
+    where = "WHERE " + " AND ".join(clauses) if clauses else ""
+    query = f"""
+        SELECT city, COUNT(DISTINCT station) AS station_count, COUNT(*) AS reading_count
+        FROM stg_aqi_readings_mat {where}
+        GROUP BY city ORDER BY city
     """
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        cur.execute(sql, params)
+        cur.execute(query, params)
         rows = cur.fetchall()
     if not rows:
-        return ""
+        return _result()
     lines = ["Station counts from sensor data:"]
-    for r in rows:
-        lines.append(f"  {r['city']}: {r['station_count']} station(s)")
-    return "\n".join(lines)
+    for row in rows:
+        lines.append(f"  {row['city']}: {row['station_count']} station(s)")
+    return _result("\n".join(lines), sum(row["reading_count"] for row in rows),
+                   {"cities": cities, "stations": stations, "sources": sources,
+                    "date_from": date_from, "date_to": date_to})
 
 
-def lookup(conn, cities: list, pollutants: list, date_from: str, date_to: str, intent: str = "data_lookup") -> str:
-    """
-    Queries stg_aqi_readings_mat with the given filters.
-    Returns a formatted text block to pass as context to generate().
-    Returns empty string if no rows found.
-    """
+def lookup(conn, cities, stations, pollutants, sources, date_from, date_to, intent="data_lookup"):
+    """Run an exact lookup and return context plus audit metadata."""
     if intent == "station_count":
-        return _station_count(conn, cities)
+        return _station_count(conn, cities, stations, sources, date_from, date_to)
     if intent == "city_ranking":
-        return _city_ranking(conn, pollutants, date_from, date_to)
+        return _city_ranking(conn, cities, stations, pollutants, sources, date_from, date_to)
 
-    filters, params = [], []
-
-    if cities:
-        placeholders = ",".join(["%s"] * len(cities))
-        filters.append(f"city IN ({placeholders})")
-        params.extend(cities)
-
-    if pollutants:
-        placeholders = ",".join(["%s"] * len(pollutants))
-        filters.append(f"pollutant IN ({placeholders})")
-        params.extend(pollutants)
-
-    if date_from:
-        filters.append("reading_time_utc >= %s")
-        params.append(date_from)
-
-    if date_to:
-        filters.append("reading_time_utc <= %s")
-        params.append(date_to + " 23:59:59")
-
-    if not filters:
-        return ""
-
-    where = "WHERE " + " AND ".join(filters)
-
-    sql = f"""
-        SELECT city, pollutant,
-               ROUND(AVG(pollutant_value)::numeric, 2) AS avg_value,
+    clauses, params = _build_filters(cities, stations, pollutants, sources, date_from, date_to)
+    if not clauses:
+        return _result()
+    clauses.append("pollutant_value IS NOT NULL")
+    query = f"""
+        SELECT city, pollutant, ROUND(AVG(pollutant_value)::numeric, 2) AS avg_value,
                ROUND(PERCENTILE_CONT(0.9) WITHIN GROUP (ORDER BY pollutant_value)::numeric, 2) AS p90_value,
-               unit,
-               DATE_TRUNC('day', reading_time_utc)::date AS day,
-               source
+               unit, DATE_TRUNC('day', reading_time_utc)::date AS day, source,
+               COUNT(*) AS reading_count, SUM(COUNT(*)) OVER () AS total_reading_count
         FROM stg_aqi_readings_mat
-        {where}
+        WHERE {' AND '.join(clauses)}
         GROUP BY city, pollutant, unit, DATE_TRUNC('day', reading_time_utc)::date, source
-        ORDER BY day DESC, city, pollutant
-        LIMIT 30
+        ORDER BY day DESC, city, pollutant LIMIT 30
     """
-
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        cur.execute(sql, params)
+        cur.execute(query, params)
         rows = cur.fetchall()
-
     if not rows:
-        return ""
-
+        return _result()
     lines = ["Exact daily aggregates from sensor readings:"]
-    for r in rows:
-        lines.append(
-            f"  {r['city']} | {r['day']} | {r['pollutant']} | "
-            f"avg={r['avg_value']} {r['unit']}, P90={r['p90_value']} {r['unit']} | source={r['source']}"
-        )
-
-    return "\n".join(lines)
+    for row in rows:
+        lines.append(f"  {row['city']} | {row['day']} | {row['pollutant']} | avg={row['avg_value']} {row['unit']}, P90={row['p90_value']} {row['unit']} | source={row['source']} ({row['reading_count']} readings in this aggregate)")
+    return _result("\n".join(lines), rows[0]["total_reading_count"],
+                   {"cities": cities, "stations": stations, "pollutants": pollutants,
+                    "sources": sources, "date_from": date_from, "date_to": date_to})

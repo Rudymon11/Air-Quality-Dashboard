@@ -68,14 +68,10 @@ FIX #6 - CPCB's pollutant value field names changed at the API level.
          now checks both key names, so a future reversion on their end
          doesn't silently reintroduce the same failure mode.
 
-FIX #7 - _save() passed the raw SQLAlchemy Engine straight to df.to_sql(),
-         which threw "AttributeError: 'Engine' object has no attribute
-         'cursor'" the first time this ran for real under Airflow. Caused
-         by pandas failing to recognize the Engine as a proper SQLAlchemy
-         connectable (a version-sensitive detection issue) and falling
-         back to a legacy DBAPI code path that expects a raw connection
-         with a .cursor() method. Fixed by passing an explicit Connection
-         via engine.begin() instead of the bare Engine.
+FIX #7 - database writes use psycopg2 COPY directly rather than pandas
+         to_sql(). This avoids the pandas/SQLAlchemy version mismatch seen
+         in the Airflow environment and uses PostgreSQL's native bulk-load
+         path.
 ---------------------------------------------------------------------------
 """
 
@@ -589,24 +585,80 @@ def _save(df, table_name="raw_aqi_readings"):
     injected every hour when running without Postgres. Now the header is
     only written the first time the file is created.
 
-    FIX #7: df.to_sql() was passed the raw SQLAlchemy Engine directly.
-    Depending on the exact pandas/SQLAlchemy versions installed (which can
-    easily differ between environments -- e.g. the Airflow venv vs. a
-    regular project venv), pandas can fail to recognize an Engine as a
-    proper SQLAlchemy connectable and falls back to a legacy code path
-    that expects a raw DBAPI connection with a .cursor() method, which an
-    Engine doesn't have -- producing "AttributeError: 'Engine' object has
-    no attribute 'cursor'". Passing an explicit Connection (via
-    engine.begin(), which also wraps the write in a transaction) avoids
-    that detection path entirely.
+    Database writes use psycopg2 COPY directly. The raw table remains an
+    append-only landing table; only duplicates within the current fetched
+    batch are removed here. Cross-run and cross-source reconciliation belongs
+    in the dbt staging model.
     """
     db_url = os.getenv("DATABASE_URL")
     if db_url:
-        from sqlalchemy import create_engine
-        engine = create_engine(db_url)
-        with engine.begin() as conn:
-            df.to_sql(table_name, conn, if_exists="append", index=False)
-        print(f"Written to Postgres table '{table_name}'.")
+        import io
+        import psycopg2
+        from psycopg2 import sql
+
+        required_cols = [
+            "city", "station", "pollutant", "value", "unit",
+            "reading_time_utc", "source", "ingested_at"
+        ]
+        missing = [col for col in required_cols if col not in df.columns]
+        if missing:
+            raise ValueError(f"Missing columns before database load: {missing}")
+
+        load_df = df[required_cols].copy()
+        load_df["reading_time_utc"] = pd.to_datetime(
+            load_df["reading_time_utc"], errors="coerce", utc=True
+        )
+        load_df["ingested_at"] = pd.to_datetime(
+            load_df["ingested_at"], errors="coerce", utc=True
+        )
+        load_df["value"] = pd.to_numeric(load_df["value"], errors="coerce")
+        load_df = load_df.dropna(
+            subset=["city", "station", "pollutant", "reading_time_utc", "value", "source", "ingested_at"]
+        )
+        # Remove duplicates produced within this fetch only. The raw table is
+        # intentionally append-only; cross-run/source reconciliation belongs
+        # in dbt, where source priority and data-quality rules are explicit.
+        load_df = load_df.drop_duplicates(
+            subset=["city", "station", "pollutant", "reading_time_utc", "source"],
+            keep="first",
+        )
+
+        conn = psycopg2.connect(db_url)
+        try:
+            with conn.cursor() as cur:
+                cur.execute(sql.SQL("""
+                    CREATE TABLE IF NOT EXISTS {} (
+                        city TEXT,
+                        station TEXT,
+                        pollutant TEXT,
+                        value DOUBLE PRECISION,
+                        unit TEXT,
+                        reading_time_utc TIMESTAMPTZ,
+                        source TEXT,
+                        ingested_at TIMESTAMPTZ
+                    )
+                """).format(sql.Identifier(table_name)))
+
+                buffer = io.StringIO()
+                load_df.to_csv(buffer, index=False, header=False)
+                buffer.seek(0)
+                cur.copy_expert(
+                    sql.SQL("COPY {} ").format(sql.Identifier(table_name)).as_string(conn)
+                    + "(city, station, pollutant, value, unit, reading_time_utc, source, ingested_at) "
+                    "FROM STDIN WITH CSV",
+                    buffer,
+                )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+        print(
+            f"Written {len(load_df)} rows to Postgres table '{table_name}'. "
+            "Cross-run/source deduplication is handled by dbt."
+        )
     else:
         out_path = f"{table_name}.csv"
         file_exists = os.path.exists(out_path)

@@ -65,6 +65,13 @@ def load_csv_via_copy(conn, csv_path):
     # Normalize timestamps so Postgres can parse them cleanly via COPY.
     df["reading_time_utc"] = pd.to_datetime(df["reading_time_utc"], errors="coerce", utc=True)
     df["ingested_at"] = pd.to_datetime(df["ingested_at"], errors="coerce", utc=True)
+    df["value"] = pd.to_numeric(df["value"], errors="coerce")
+    before = len(df)
+    df = df.dropna(subset=["city", "station", "pollutant", "reading_time_utc", "value", "source", "ingested_at"])
+    df = df.drop_duplicates(
+        subset=["city", "station", "pollutant", "reading_time_utc", "source"],
+        keep="first",
+    )
 
     buffer = io.StringIO()
     df.to_csv(buffer, index=False, header=False)
@@ -72,11 +79,16 @@ def load_csv_via_copy(conn, csv_path):
 
     with conn.cursor() as cur:
         cur.copy_expert(
-            f"COPY {TABLE_NAME} ({', '.join(df.columns)}) FROM STDIN WITH CSV",
+            f"COPY {TABLE_NAME} "
+            "(city, station, pollutant, value, unit, reading_time_utc, source, ingested_at) "
+            "FROM STDIN WITH CSV",
             buffer,
         )
     conn.commit()
-    print(f"Copied {len(df)} rows into Postgres table '{TABLE_NAME}'.")
+    print(
+        f"Copied {len(df)} rows into Postgres table '{TABLE_NAME}' "
+        f"({before - len(df)} invalid/intra-batch duplicates skipped)."
+    )
 
 
 if __name__ == "__main__":

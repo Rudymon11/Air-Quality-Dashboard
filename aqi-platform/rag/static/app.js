@@ -243,6 +243,7 @@ function askQuestion() {
       thread.scrollTop = thread.scrollHeight;
 
       renderSources(data.sources);
+      renderAudit(data.rows_used, data.filters_applied);
       renderRetrievedTable(data.sources, data.sql_rows, data.route);
       document.getElementById('qa-loading').style.display = 'none';
       document.getElementById('qa-result').style.display  = '';
@@ -261,6 +262,18 @@ function renderSources(sources) {
       <span class="week-range ms-2">${s.week_start} → ${s.week_end}</span>
     </div>
   `).join('');
+}
+
+function renderAudit(rowsUsed, filters) {
+  const el = document.getElementById('qa-audit');
+  if (!el) return;
+  const filterText = filters && Object.entries(filters)
+    .filter(([, value]) => value && (!Array.isArray(value) || value.length > 0))
+    .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(', ') : value}`)
+    .join(' · ');
+  el.textContent = rowsUsed
+    ? `Underlying sensor rows used: ${Number(rowsUsed).toLocaleString()}${filterText ? ` · ${filterText}` : ''}`
+    : (filterText ? `Filters: ${filterText}` : 'No exact sensor rows used.');
 }
 
 function renderRetrievedTable(sources, sqlRows, route) {
