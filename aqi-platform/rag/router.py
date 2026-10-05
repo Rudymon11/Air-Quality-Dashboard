@@ -1,63 +1,61 @@
-"""
-router.py
+"""Structured query planning for the AQI Q&A system."""
 
-Classifies a user query into one of three routing types and extracts
-structured parameters (city, pollutant, date range) from it.
-
-Route types:
-    needs_exact_lookup   — specific numbers for a city/date (→ SQL)
-    needs_trend_context  — trends, causes, comparisons (→ vector retrieval)
-    both                 — needs exact data AND trend context
-"""
-
-import os
 import json
-from groq import Groq
-from dotenv import load_dotenv
+import os
 from pathlib import Path
+
+from dotenv import load_dotenv
+from groq import Groq
 
 load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")
 
 _client = None
+VALID_SOURCES = ["CPCB", "OpenAQ", "OpenAQ_AWS_Archive"]
+VALID_AGGREGATIONS = ["average", "maximum", "p90", "count"]
+VALID_DIRECTIONS = ["highest", "lowest"]
+VALID_SCOPES = ["all_cities", "selected_cities", "selected_stations"]
 
-ROUTER_PROMPT = """You are a query classifier for an air quality data system.
-Classify the user query into exactly one of these route types:
-- needs_exact_lookup: asks for specific numbers, a specific date/period, or a specific city's readings
-- needs_trend_context: asks about trends, causes, comparisons, explanations, or general patterns
-- both: needs both specific numbers AND trend/context explanation
+ROUTER_PROMPT = """You are the structured query planner for an Indian air-quality database.
+Return ONLY valid JSON. Build a complete plan for the current question, using
+the prior plan as conversational state when the question is a follow-up.
 
-Also extract any mentioned city names, station names, pollutant names, source
-filters, and date references.
+The database supports cities, stations, pollutants/weather metrics, sources,
+UTC date ranges, daily aggregates, city rankings, station counts, trend
+context, and explanations. Valid sources are CPCB, OpenAQ, and
+OpenAQ_AWS_Archive. Valid pollutants include PM2.5, PM10, SO2, NO2, NO, CO,
+NH3, O3, NOX, PM1, UM003, TEMP, HUMIDITY, WIND_SPEED, and WIND_DIR.
 
-Valid pollutants: PM2.5, PM10, SO2, NO2, NO, CO, NH3, O3, WIND_SPEED, TEMP, HUMIDITY
-For city_ranking queries, always populate "pollutants" with the relevant metric. Map natural language to the correct pollutant name: "windiest" → WIND_SPEED, "hottest" or "warmest" → TEMP, "most humid" → HUMIDITY, "most polluted" → PM2.5.
-Valid cities: Ahmedabad, Bengaluru, Bhopal, Chennai, Dehradun, Delhi, Guwahati, Hyderabad, Indore, Kolkata, Lucknow, Ludhiana, Mumbai, Nagpur, Patna, Shillong, Srinagar, Visakhapatnam
-Valid sources: CPCB, OpenAQ, OpenAQ_AWS_Archive
-Map source wording exactly: "CPCB data"/"government data" -> CPCB;
-"OpenAQ live" -> OpenAQ; "archive"/"historical OpenAQ" -> OpenAQ_AWS_Archive.
-If the user says "only", "just", or "use ... data", populate sources with
-only the requested source. Never leave a requested source filter implicit.
+Rules:
+- A source request must be represented in sources and requires exact SQL.
+- Ranking questions set intent=city_ranking, aggregation=average by default,
+  and direction=highest or lowest.
+- "worst city to live in" defaults to metric PM2.5, aggregation average,
+  direction highest, and scope all_cities unless the user specifies otherwise.
+- "overall", "all cities", or "entire database" resets city scope to all_cities
+  unless a city is explicitly named in the current question.
+- Follow-ups inherit prior filters unless the current question changes or
+  explicitly resets them.
+- Explanations may accompany exact SQL, but causes are hypotheses unless the
+  database contains supporting evidence.
 
-Respond with ONLY valid JSON in this exact format:
+JSON schema:
 {
   "route": "needs_exact_lookup" | "needs_trend_context" | "both",
   "intent": "station_count" | "city_ranking" | "data_lookup" | "trend",
-  "cities": ["City1", "City2"],
-  "stations": ["station name"],
-  "pollutants": ["PM2.5"],
-  "sources": ["CPCB"],
-  "date_from": "YYYY-MM-DD or null",
-  "date_to": "YYYY-MM-DD or null"
+  "metric": "PM2.5",
+  "aggregation": "average" | "maximum" | "p90" | "count",
+  "direction": "highest" | "lowest" | null,
+  "scope": "all_cities" | "selected_cities" | "selected_stations",
+  "cities": [],
+  "stations": [],
+  "pollutants": [],
+  "sources": [],
+  "date_from": null,
+  "date_to": null,
+  "needs_explanation": true
 }
 
-Set intent to "station_count" when the query asks about number of stations, sensors, monitors, or locations.
-Set intent to "city_ranking" when the query asks which city is highest/lowest/worst/best/windiest/hottest/most polluted for a specific pollutant or weather metric — i.e. a cross-city comparison requiring a ranked list.
-Set intent to "data_lookup" for specific readings/values for known cities.
-Set intent to "trend" for patterns, causes, comparisons, explanations.
-Set route to "needs_exact_lookup" whenever a source filter is requested,
-because weekly vector summaries combine multiple sources.
-
-Today's date is 2026-08-25. Resolve relative dates like "last week", "last month", "yesterday" accordingly.
+Today's data-window reference date is 2026-08-25. Resolve relative dates.
 """
 
 
@@ -68,36 +66,58 @@ def _get_client():
     return _client
 
 
-def classify(query: str, history: list = None) -> dict:
-    """
-    Returns a dict with keys: route, intent, cities, stations, pollutants,
-    sources, date_from, date_to.
-    Falls back to needs_trend_context on any parse failure.
-    """
+def _normalise(plan):
+    plan = plan if isinstance(plan, dict) else {}
+    result = {
+        "route": plan.get("route", "needs_trend_context"),
+        "intent": plan.get("intent", "trend"),
+        "metric": plan.get("metric"),
+        "aggregation": plan.get("aggregation", "average"),
+        "direction": plan.get("direction"),
+        "scope": plan.get("scope", "all_cities"),
+        "cities": plan.get("cities") or [],
+        "stations": plan.get("stations") or [],
+        "pollutants": plan.get("pollutants") or [],
+        "sources": plan.get("sources") or [],
+        "date_from": plan.get("date_from"),
+        "date_to": plan.get("date_to"),
+        "needs_explanation": bool(plan.get("needs_explanation", True)),
+    }
+    result["sources"] = [s for s in result["sources"] if s in VALID_SOURCES]
+    result["aggregation"] = result["aggregation"] if result["aggregation"] in VALID_AGGREGATIONS else "average"
+    result["direction"] = result["direction"] if result["direction"] in VALID_DIRECTIONS else None
+    result["scope"] = result["scope"] if result["scope"] in VALID_SCOPES else "all_cities"
+    if result["sources"] or result["intent"] in {"city_ranking", "station_count", "data_lookup"}:
+        result["route"] = "needs_exact_lookup"
+    if result["cities"] and result["scope"] == "all_cities":
+        result["scope"] = "selected_cities"
+    if result["stations"]:
+        result["scope"] = "selected_stations"
+    if result["intent"] == "city_ranking" and not result["pollutants"] and not result["metric"]:
+        result["metric"] = "PM2.5"
+        result["pollutants"] = ["PM2.5"]
+    elif result["metric"] and not result["pollutants"]:
+        result["pollutants"] = [result["metric"]]
+    return result
+
+
+def classify(query: str, history: list | None = None, prior_plan: dict | None = None) -> dict:
+    """Return a validated, complete plan rather than a route-only guess."""
     try:
+        state = json.dumps(prior_plan or {}, ensure_ascii=False)
         messages = [{"role": "system", "content": ROUTER_PROMPT}]
+        messages.append({"role": "system", "content": f"Prior structured plan: {state}"})
         if history:
-            messages.extend(history)  # full session history
+            messages.extend(history)
         messages.append({"role": "user", "content": query})
         response = _get_client().chat.completions.create(
-            model="openai/gpt-oss-120b",
-            messages=messages,
-            temperature=0.0,
+            model="openai/gpt-oss-120b", messages=messages, temperature=0.0
         )
         raw = response.choices[0].message.content.strip()
-        # strip markdown code fences if model wraps in ```json
         if raw.startswith("```"):
             raw = raw.split("```")[1]
             if raw.startswith("json"):
                 raw = raw[4:]
-        return json.loads(raw)
+        return _normalise(json.loads(raw))
     except Exception:
-        return {
-            "route": "needs_trend_context",
-            "cities": [],
-            "stations": [],
-            "pollutants": [],
-            "sources": [],
-            "date_from": None,
-            "date_to": None,
-        }
+        return _normalise({})

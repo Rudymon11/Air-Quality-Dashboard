@@ -69,51 +69,18 @@ def ask():
     body    = request.get_json(force=True)
     query   = body.get("query", "").strip()
     history = body.get("history", [])
+    prior_filters = body.get("prior_filters", {})
     if not query:
         return jsonify({"error": "query is required"}), 400
 
     conn = get_conn()
     try:
-        route_info = classify(query, history)
-        route      = route_info.get("route", "needs_trend_context")
-        cities     = route_info.get("cities", [])
-        pollutants = route_info.get("pollutants", [])
-        stations   = route_info.get("stations", [])
-        sources    = route_info.get("sources", [])
-        date_from  = route_info.get("date_from")
-        date_to    = route_info.get("date_to")
-        intent     = route_info.get("intent", "data_lookup")
-
-        # Deterministic safeguards for common source wording. The LLM router
-        # remains flexible, but an explicit source request must never be lost.
-        query_lower = query.lower()
-        source_aliases = {
-            "cpcb": "CPCB",
-            "openaq live": "OpenAQ",
-            "openaq archive": "OpenAQ_AWS_Archive",
-            "historical openaq": "OpenAQ_AWS_Archive",
-        }
-        for phrase, source_name in source_aliases.items():
-            if phrase in query_lower and source_name not in sources:
-                sources.append(source_name)
-
-        if ("worst city" in query_lower or "most polluted" in query_lower) and intent == "trend":
-            intent = "city_ranking"
-            route = "needs_exact_lookup"
-
-        # "Worst city to live in" is an air-quality ranking question without
-        # an explicit pollutant. PM2.5 is the documented default metric.
-        if intent == "city_ranking" and not pollutants:
-            pollutants = ["PM2.5"]
+        plan = classify(query, history, prior_filters)
+        route = plan.get("route", "needs_trend_context")
+        cities = plan.get("cities", [])
 
         retrieved  = []
         sql_result = {"context": "", "rows_used": 0, "filters": {}}
-
-        # Weekly embeddings combine sources. A source-constrained question
-        # must use exact SQL only, otherwise the answer could contain data from
-        # a different source despite the user's explicit filter.
-        if sources:
-            route = "needs_exact_lookup"
 
         if route in ("needs_trend_context", "both"):
             # if router identified specific cities, only retrieve those — avoids fetching all 18
@@ -121,10 +88,7 @@ def ask():
             retrieved = retrieve(query, conn, k=k, cities=cities if cities else None)
 
         if route in ("needs_exact_lookup", "both"):
-            sql_result = lookup(
-                conn, cities, stations, pollutants, sources,
-                date_from, date_to, intent
-            )
+            sql_result = lookup(conn, plan)
 
         sql_ctx = sql_result["context"]
         answer, tokens_used = generate(

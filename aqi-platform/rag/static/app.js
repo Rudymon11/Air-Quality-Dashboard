@@ -177,6 +177,7 @@ function changePage(dir) {
 // Q&A
 // ---------------------------------------------------------------------------
 let conversationHistory = [];
+let priorFilters = {};
 const TOKEN_LIMIT = 131072;
 const TOKEN_WARN  = 100000;
 let totalTokensUsed = 0;
@@ -187,6 +188,7 @@ function setQuery(el) {
 
 function clearConversation() {
   conversationHistory = [];
+  priorFilters = {};
   totalTokensUsed = 0;
   document.getElementById('qa-thread').innerHTML = '';
   document.getElementById('qa-result').style.display = 'none';
@@ -209,7 +211,7 @@ function askQuestion() {
   fetch('/ask', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({ query, history: conversationHistory }),
+    body: JSON.stringify({ query, history: conversationHistory, prior_filters: priorFilters }),
   })
     .then(r => {
       if (!r.ok) return r.text().then(t => { throw new Error(r.status + ' ' + t); });
@@ -219,6 +221,7 @@ function askQuestion() {
       // Update history
       conversationHistory.push({ role: 'user',      content: query });
       conversationHistory.push({ role: 'assistant', content: data.answer });
+      priorFilters = data.filters_applied || {};
 
       // Track tokens and warn if approaching limit
       if (data.tokens_used) {
