@@ -20,8 +20,8 @@ Return ONLY valid JSON. Build a complete plan for the current question, using
 the prior plan as conversational state when the question is a follow-up.
 
 The database supports cities, stations, pollutants/weather metrics, sources,
-UTC date ranges, daily aggregates, city rankings, station counts, trend
-context, and explanations. Valid sources are CPCB, OpenAQ, and
+UTC date ranges, city rankings, station rankings, station lists, station
+counts, trend context, and explanations. Valid sources are CPCB, OpenAQ, and
 OpenAQ_AWS_Archive. Valid pollutants include PM2.5, PM10, SO2, NO2, NO, CO,
 NH3, O3, NOX, PM1, UM003, TEMP, HUMIDITY, WIND_SPEED, and WIND_DIR.
 
@@ -29,6 +29,11 @@ Rules:
 - A source request must be represented in sources and requires exact SQL.
 - Ranking questions set intent=city_ranking, aggregation=average by default,
   and direction=highest or lowest.
+- A question about the most/least polluted place or station within a named
+  city sets intent=station_ranking, uses that city as the required scope, and
+  defaults to PM2.5 when no pollutant is named.
+- A request to list, show, or name stations/monitoring locations sets
+  intent=station_list. A request for their number sets intent=station_count.
 - "worst city to live in" defaults to metric PM2.5, aggregation average,
   direction highest, and scope all_cities unless the user specifies otherwise.
 - "overall", "all cities", or "entire database" resets city scope to all_cities
@@ -41,7 +46,7 @@ Rules:
 JSON schema:
 {
   "route": "needs_exact_lookup" | "needs_trend_context" | "both",
-  "intent": "station_count" | "city_ranking" | "data_lookup" | "trend",
+  "intent": "station_count" | "station_list" | "station_ranking" | "city_ranking" | "data_lookup" | "trend",
   "metric": "PM2.5",
   "aggregation": "average" | "maximum" | "p90" | "count",
   "direction": "highest" | "lowest" | null,
@@ -87,13 +92,13 @@ def _normalise(plan):
     result["aggregation"] = result["aggregation"] if result["aggregation"] in VALID_AGGREGATIONS else "average"
     result["direction"] = result["direction"] if result["direction"] in VALID_DIRECTIONS else None
     result["scope"] = result["scope"] if result["scope"] in VALID_SCOPES else "all_cities"
-    if result["sources"] or result["intent"] in {"city_ranking", "station_count", "data_lookup"}:
+    if result["sources"] or result["intent"] in {"city_ranking", "station_ranking", "station_list", "station_count", "data_lookup"}:
         result["route"] = "needs_exact_lookup"
     if result["cities"] and result["scope"] == "all_cities":
         result["scope"] = "selected_cities"
     if result["stations"]:
         result["scope"] = "selected_stations"
-    if result["intent"] == "city_ranking" and not result["pollutants"] and not result["metric"]:
+    if result["intent"] in {"city_ranking", "station_ranking"} and not result["pollutants"] and not result["metric"]:
         result["metric"] = "PM2.5"
         result["pollutants"] = ["PM2.5"]
     elif result["metric"] and not result["pollutants"]:

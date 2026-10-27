@@ -87,6 +87,63 @@ def _station_count(conn, plan):
     return _result("\n".join(lines), sum(row["reading_count"] for row in rows), _filters_for_response(plan))
 
 
+def _station_list(conn, plan):
+    clauses, params = _build_filters(plan)
+    where = "WHERE " + " AND ".join(clauses) if clauses else ""
+    query = f"""
+        SELECT city, station, COUNT(*) AS reading_count,
+               MIN(reading_time_utc)::date AS first_reading,
+               MAX(reading_time_utc)::date AS last_reading
+        FROM stg_aqi_readings_mat
+        {where}
+        GROUP BY city, station
+        ORDER BY city, station
+    """
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(query, params)
+        rows = cur.fetchall()
+    if not rows:
+        return _result()
+    lines = ["Stations found in the filtered sensor data:"]
+    for row in rows:
+        lines.append(
+            f"  {row['city']} | {row['station']} | {row['reading_count']} readings "
+            f"({row['first_reading']} to {row['last_reading']})"
+        )
+    return _result("\n".join(lines), sum(row["reading_count"] for row in rows), _filters_for_response(plan))
+
+
+def _station_ranking(conn, plan):
+    cities = plan.get("cities") or []
+    if not cities:
+        return _result("A city is required for station ranking.")
+    pollutants = plan.get("pollutants") or [plan.get("metric") or "PM2.5"]
+    expression = AGGREGATIONS.get(plan.get("aggregation"), AGGREGATIONS["average"])
+    direction = "ASC" if plan.get("direction") == "lowest" else "DESC"
+    clauses, params = _build_filters({**plan, "pollutants": pollutants[:1]})
+    clauses.append("pollutant_value IS NOT NULL")
+    query = f"""
+        SELECT city, station, ROUND(({expression})::numeric, 2) AS aggregate_value,
+               unit, COUNT(*) AS reading_count
+        FROM stg_aqi_readings_mat
+        WHERE {' AND '.join(clauses)}
+        GROUP BY city, station, unit
+        HAVING COUNT(*) > 10
+        ORDER BY aggregate_value {direction}
+    """
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(query, params)
+        rows = cur.fetchall()
+    if not rows:
+        return _result()
+    aggregation = plan.get("aggregation", "average")
+    source_label = ", ".join(plan.get("sources") or []) or "all sources"
+    lines = [f"Station ranking in {', '.join(cities)} by {aggregation} {pollutants[0]} ({source_label}; stations with >10 readings):"]
+    for i, row in enumerate(rows, 1):
+        lines.append(f"  {i}. {row['station']} ({row['city']}): {row['aggregate_value']} {row['unit']} ({row['reading_count']} readings)")
+    return _result("\n".join(lines), sum(row["reading_count"] for row in rows), _filters_for_response(plan))
+
+
 def _data_lookup(conn, plan):
     clauses, params = _build_filters(plan)
     if not clauses:
@@ -118,6 +175,10 @@ def lookup(conn, plan):
     intent = plan.get("intent", "data_lookup")
     if intent == "station_count":
         return _station_count(conn, plan)
+    if intent == "station_list":
+        return _station_list(conn, plan)
+    if intent == "station_ranking":
+        return _station_ranking(conn, plan)
     if intent == "city_ranking":
         return _city_ranking(conn, plan)
     return _data_lookup(conn, plan)
