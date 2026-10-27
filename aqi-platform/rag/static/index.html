@@ -45,6 +45,21 @@
           <i class="bi bi-activity me-1"></i>Raw Readings
         </button>
       </li>
+      <li class="nav-item">
+        <button class="nav-link" onclick="switchTable('corrosivity')">
+          <i class="bi bi-shield-check me-1"></i>Corrosivity Screening
+        </button>
+      </li>
+      <li class="nav-item">
+        <button class="nav-link" onclick="switchTable('deliquescence')">
+          <i class="bi bi-droplet-half me-1"></i>Deliquescence Screening
+        </button>
+      </li>
+      <li class="nav-item">
+        <button class="nav-link" onclick="switchTable('electronics')">
+          <i class="bi bi-cpu me-1"></i>Electronics Screening
+        </button>
+      </li>
     </ul>
 
     <!-- Filters -->
@@ -143,7 +158,7 @@
 
     <div class="mb-4">
       <h4 class="fw-bold mb-1">Ask the Data</h4>
-      <p class="text-muted small mb-0">Questions are answered using real sensor data retrieved from the warehouse. Every number is grounded in actual readings.</p>
+      <p class="text-muted small mb-0">Questions are answered using real sensor data retrieved from the warehouse.</p>
     </div>
 
     <!-- Input -->
@@ -164,6 +179,9 @@
         <span class="chip" onclick="setQuery(this)">Compare Delhi and Mumbai PM2.5 trends</span>
         <span class="chip" onclick="setQuery(this)">Which city had the worst SO2?</span>
         <span class="chip" onclick="setQuery(this)">How does humidity affect pollution in Chennai?</span>
+        <span class="chip" onclick="setQuery(this)">Which station in Delhi has the highest corrosivity screening score?</span>
+        <span class="chip" onclick="setQuery(this)">Which city has the highest deliquescence risk?</span>
+        <span class="chip" onclick="setQuery(this)">Which station has the highest electronics screening score?</span>
       </div>
     </div>
 

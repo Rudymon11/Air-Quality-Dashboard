@@ -26,6 +26,14 @@ const COL_LABELS = {
   station: 'Station', pollutant: 'Pollutant',
   pollutant_value: 'Value', unit: 'Unit',
   reading_time_utc: 'Timestamp', ingested_at: 'Ingested At',
+  avg_temp: 'Temperature', avg_humidity: 'Humidity', humid_exposure_percent: 'Humidity ≥60% (%)',
+  corrosivity_screening_score: 'Corrosivity Screening Score', sapr: 'SAPR',
+  electronics_screening_score: 'Electronics Screening Score',
+  wetting_active: 'Wetting Active', screening_category: 'Screening Category',
+  so2_readings: 'SO2 Readings', humidity_readings: 'Humidity Readings',
+  observed_timestamps: 'Observed Timestamps', sources: 'Sources',
+  pm25_readings: 'PM2.5 Readings', nh3_readings: 'NH3 Readings',
+  no2_readings: 'NO2 Readings', aligned_timestamps: 'Observed Timestamps',
 };
 
 // ---------------------------------------------------------------------------
@@ -68,13 +76,16 @@ function switchTable(name) {
   currentOffset = 0;
 
   document.querySelectorAll('#explorerTabs .nav-link').forEach((b, i) => {
-    b.classList.toggle('active', (i === 0 && name === 'daily') || (i === 1 && name === 'readings'));
+    b.classList.toggle('active', ['daily', 'readings', 'corrosivity', 'deliquescence', 'electronics'][i] === name);
   });
 
   // show/hide filters
-  document.getElementById('filter-date-from-wrap').style.display  = name === 'daily' ? '' : 'none';
-  document.getElementById('filter-date-to-wrap').style.display    = name === 'daily' ? '' : 'none';
-  document.getElementById('filter-station-wrap').style.display    = name === 'readings' ? '' : 'none';
+  const screening = ['corrosivity', 'deliquescence', 'electronics'].includes(name);
+  document.getElementById('filter-date-from-wrap').style.display  = name !== 'readings' ? '' : 'none';
+  document.getElementById('filter-date-to-wrap').style.display    = name !== 'readings' ? '' : 'none';
+  document.getElementById('filter-station-wrap').style.display    = name !== 'daily' ? '' : 'none';
+  document.getElementById('filter-pollutant-wrap').style.display   = screening ? 'none' : '';
+  document.getElementById('filter-source').parentElement.style.display = screening ? 'none' : '';
 
   // pollutant options differ per table
   const sel = document.getElementById('filter-pollutant');
@@ -104,9 +115,14 @@ function loadTable(offset) {
     const from = document.getElementById('filter-date-from').value;
     const to   = document.getElementById('filter-date-to').value;
     url = `/api/daily?city=${encodeURIComponent(city)}&pollutant=${encodeURIComponent(pollutant)}&source=${encodeURIComponent(source)}&date_from=${from}&date_to=${to}&limit=${limit}&offset=${offset}`;
-  } else {
+  } else if (currentTable === 'readings') {
     const station = document.getElementById('filter-station').value;
     url = `/api/readings?city=${encodeURIComponent(city)}&pollutant=${encodeURIComponent(pollutant)}&source=${encodeURIComponent(source)}&station=${encodeURIComponent(station)}&limit=${limit}&offset=${offset}`;
+  } else {
+    const from = document.getElementById('filter-date-from').value;
+    const to   = document.getElementById('filter-date-to').value;
+    const station = document.getElementById('filter-station').value;
+    url = `/api/${currentTable}?city=${encodeURIComponent(city)}&station=${encodeURIComponent(station)}&date_from=${from}&date_to=${to}&limit=${limit}&offset=${offset}`;
   }
 
   document.getElementById('table-loading').style.display    = '';
@@ -116,7 +132,7 @@ function loadTable(offset) {
     .then(r => r.json())
     .then(data => {
       currentTotal = data.total;
-      renderTable(data.columns, data.rows);
+      renderTable(data.columns || (data.rows.length ? Object.keys(data.rows[0]) : []), data.rows);
       updatePagination(data.total, data.offset, data.limit);
       document.getElementById('table-loading').style.display   = 'none';
       document.getElementById('table-container').style.display = '';

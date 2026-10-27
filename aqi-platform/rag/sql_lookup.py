@@ -36,7 +36,7 @@ def _build_filters(plan):
 def _filters_for_response(plan):
     return {key: plan.get(key) for key in (
         "scope", "cities", "stations", "pollutants", "sources", "date_from", "date_to",
-        "aggregation", "direction",
+        "aggregation", "direction", "domain", "metric",
     ) if plan.get(key) not in (None, [], "")}
 
 
@@ -66,6 +66,133 @@ def _city_ranking(conn, plan):
     for i, row in enumerate(rows, 1):
         lines.append(f"  {i}. {row['city']}: {row['aggregate_value']} {row['unit']} ({row['reading_count']} readings)")
     return _result("\n".join(lines), sum(row["reading_count"] for row in rows), _filters_for_response(plan))
+
+
+SCREENING_CONFIG = {
+    "corrosivity": {
+        "table": "fct_station_daily_corrosivity",
+        "value": "corrosivity_screening_score",
+        "label": "corrosivity screening score",
+        "category": "screening_category",
+        "count_columns": ["so2_readings", "humidity_readings"],
+    },
+    "deliquescence": {
+        "table": "fct_station_daily_deliquescence",
+        "value": "sapr",
+        "label": "SAPR deliquescence screening index",
+        "category": "screening_category",
+        "count_columns": ["pm25_readings", "nh3_readings", "so2_readings", "no2_readings", "humidity_readings"],
+    },
+    "electronics": {
+        "table": "fct_station_daily_electronics_risk",
+        "value": "electronics_screening_score",
+        "label": "electronics-environment screening score",
+        "category": "screening_category",
+        "count_columns": ["so2_readings", "no2_readings", "o3_readings", "humidity_readings"],
+    },
+}
+
+
+def _screening_filters(plan):
+    clauses, params = [], []
+    if plan.get("cities"):
+        clauses.append("city IN (" + ",".join(["%s"] * len(plan["cities"])) + ")")
+        params.extend(plan["cities"])
+    if plan.get("stations"):
+        clauses.append("station IN (" + ",".join(["%s"] * len(plan["stations"])) + ")")
+        params.extend(plan["stations"])
+    if plan.get("date_from"):
+        clauses.append("reading_date >= %s"); params.append(plan["date_from"])
+    if plan.get("date_to"):
+        clauses.append("reading_date <= %s"); params.append(plan["date_to"])
+    return clauses, params
+
+
+def _screening_ranking(conn, plan):
+    config = SCREENING_CONFIG[plan["domain"]]
+    clauses, params = _screening_filters(plan)
+    clauses.append(f"{config['value']} IS NOT NULL")
+    where = " AND ".join(clauses)
+    direction = "ASC" if plan.get("direction") == "lowest" else "DESC"
+    group_column = "station" if plan.get("intent") == "station_ranking" else "city"
+    query = f"""
+        SELECT city, {group_column}, ROUND(AVG({config['value']})::numeric, 4) AS aggregate_value,
+               COUNT(*) AS screening_rows, MIN(reading_date) AS first_date,
+               MAX(reading_date) AS last_date
+        FROM {config['table']}
+        WHERE {where}
+        GROUP BY city, {group_column}
+        HAVING COUNT(*) > 0
+        ORDER BY aggregate_value {direction} NULLS LAST
+    """
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(query, params)
+        rows = cur.fetchall()
+    if not rows:
+        return _result("No screening rows matched the requested filters.", 0, _filters_for_response(plan))
+    scope_label = "station" if group_column == "station" else "city"
+    lines = [f"{scope_label.title()} ranking by {config['label']} (screening proxy; daily rows):"]
+    for i, row in enumerate(rows, 1):
+        name = row[group_column]
+        lines.append(f"  {i}. {name} ({row['city']}): {row['aggregate_value']} ({row['screening_rows']} station-days, {row['first_date']} to {row['last_date']})")
+    return _result("\n".join(lines), sum(row["screening_rows"] for row in rows), _filters_for_response(plan))
+
+
+def _screening_lookup(conn, plan):
+    config = SCREENING_CONFIG[plan["domain"]]
+    clauses, params = _screening_filters(plan)
+    clauses.append(f"{config['value']} IS NOT NULL")
+    where = " AND ".join(clauses)
+    query = f"""
+        SELECT city, station, reading_date, {config['value']} AS metric_value,
+               {config['category']} AS screening_category, sources
+        FROM {config['table']}
+        WHERE {where}
+        ORDER BY reading_date DESC, metric_value DESC
+        LIMIT 100
+    """
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(query, params)
+        rows = cur.fetchall()
+    if not rows:
+        return _result("No screening rows matched the requested filters.", 0, _filters_for_response(plan))
+    lines = [f"Exact {config['label']} rows (screening proxy):"]
+    for row in rows:
+        lines.append(f"  {row['city']} | {row['station']} | {row['reading_date']} | value={row['metric_value']} | category={row['screening_category']} | sources={row['sources']}")
+    return _result("\n".join(lines), len(rows), _filters_for_response(plan))
+
+
+def _screening_station_list(conn, plan):
+    config = SCREENING_CONFIG[plan["domain"]]
+    clauses, params = _screening_filters(plan)
+    where = "WHERE " + " AND ".join(clauses) if clauses else ""
+    query = f"""
+        SELECT city, station, COUNT(*) AS screening_rows,
+               MIN(reading_date) AS first_date, MAX(reading_date) AS last_date
+        FROM {config['table']} {where}
+        GROUP BY city, station ORDER BY city, station
+    """
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(query, params)
+        rows = cur.fetchall()
+    lines = [f"Stations present in {plan['domain']} screening data:"]
+    for row in rows:
+        lines.append(f"  {row['city']} | {row['station']} | {row['screening_rows']} station-days ({row['first_date']} to {row['last_date']})")
+    return _result("\n".join(lines), sum(row["screening_rows"] for row in rows), _filters_for_response(plan))
+
+
+def _screening_station_count(conn, plan):
+    config = SCREENING_CONFIG[plan["domain"]]
+    clauses, params = _screening_filters(plan)
+    where = "WHERE " + " AND ".join(clauses) if clauses else ""
+    query = f"SELECT city, COUNT(DISTINCT station) AS station_count, COUNT(*) AS screening_rows FROM {config['table']} {where} GROUP BY city ORDER BY city"
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(query, params)
+        rows = cur.fetchall()
+    lines = [f"Station counts in {plan['domain']} screening data:"]
+    for row in rows:
+        lines.append(f"  {row['city']}: {row['station_count']} station(s)")
+    return _result("\n".join(lines), sum(row["screening_rows"] for row in rows), _filters_for_response(plan))
 
 
 def _station_count(conn, plan):
@@ -173,6 +300,14 @@ def _data_lookup(conn, plan):
 def lookup(conn, plan):
     """Execute the validated query plan and return context plus audit metadata."""
     intent = plan.get("intent", "data_lookup")
+    if plan.get("domain") in SCREENING_CONFIG:
+        if intent == "station_list":
+            return _screening_station_list(conn, plan)
+        if intent == "station_count":
+            return _screening_station_count(conn, plan)
+        if intent in {"city_ranking", "station_ranking"}:
+            return _screening_ranking(conn, plan)
+        return _screening_lookup(conn, plan)
     if intent == "station_count":
         return _station_count(conn, plan)
     if intent == "station_list":

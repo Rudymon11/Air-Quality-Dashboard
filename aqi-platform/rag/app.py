@@ -12,6 +12,12 @@ Endpoints:
                                     — paginated rows from fct_city_daily_aqi
     GET  /api/readings?city=&pollutant=&limit=
                                     — paginated rows from stg_aqi_readings
+    GET  /api/corrosivity?city=&station=&date_from=&date_to=&limit=
+                                    — station/day corrosivity screening rows
+    GET  /api/deliquescence?city=&station=&date_from=&date_to=&limit=
+                                    — station/day deliquescence screening rows
+    GET  /api/electronics?city=&station=&date_from=&date_to=&limit=
+                                    — station/day electronics screening rows
 
 Usage:
     python rag/app.py
@@ -257,6 +263,86 @@ def readings():
         })
     finally:
         conn.close()
+
+
+def _screening_rows(table, columns, order_column):
+    """Return a bounded, filterable view of a corrosion screening mart."""
+    city = request.args.get("city", "").strip()
+    station = request.args.get("station", "").strip()
+    date_from = request.args.get("date_from", "").strip()
+    date_to = request.args.get("date_to", "").strip()
+    limit = min(int(request.args.get("limit", 100)), 500)
+    offset = int(request.args.get("offset", 0))
+
+    filters, params = [], []
+    if city:
+        filters.append("city = %s"); params.append(city)
+    if station:
+        filters.append("station ILIKE %s"); params.append(f"%{station}%")
+    if date_from:
+        filters.append("reading_date >= %s"); params.append(date_from)
+    if date_to:
+        filters.append("reading_date <= %s"); params.append(date_to)
+    where = ("WHERE " + " AND ".join(filters)) if filters else ""
+
+    conn = get_conn()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(f"""
+                SELECT {columns}
+                FROM {table}
+                {where}
+                ORDER BY {order_column} DESC NULLS LAST, reading_date DESC
+                LIMIT %s OFFSET %s
+            """, params + [limit, offset])
+            rows = cur.fetchall()
+            cur.execute(f"SELECT COUNT(*) FROM {table} {where}", params)
+            total = cur.fetchone()["count"]
+        return jsonify({
+            "columns": [column.strip() for column in columns.split(",")],
+            "rows": [dict(row) for row in rows],
+            "total": total,
+            "offset": offset,
+            "limit": limit,
+        })
+    finally:
+        conn.close()
+
+
+@app.route("/api/corrosivity")
+def corrosivity():
+    return _screening_rows(
+        "fct_station_daily_corrosivity",
+        "city, station, reading_date, avg_so2, avg_pm10, avg_temp, "
+        "avg_humidity, humid_exposure_percent, corrosivity_screening_score, "
+        "screening_category, so2_readings, humidity_readings, observed_timestamps, "
+        "sources",
+        "corrosivity_screening_score",
+    )
+
+
+@app.route("/api/deliquescence")
+def deliquescence():
+    return _screening_rows(
+        "fct_station_daily_deliquescence",
+        "city, station, reading_date, avg_pm25, avg_pm10, avg_nh3, avg_so2, "
+        "avg_no2, avg_humidity, humid_exposure_percent, sapr, wetting_active, "
+        "screening_category, pm25_readings, nh3_readings, so2_readings, "
+        "no2_readings, humidity_readings, observed_timestamps, sources",
+        "sapr",
+    )
+
+
+@app.route("/api/electronics")
+def electronics():
+    return _screening_rows(
+        "fct_station_daily_electronics_risk",
+        "city, station, reading_date, avg_so2, avg_no2, avg_o3, avg_humidity, "
+        "humid_exposure_percent, electronics_screening_score, screening_category, "
+        "so2_readings, no2_readings, o3_readings, humidity_readings, "
+        "observed_timestamps, sources",
+        "electronics_screening_score",
+    )
 
 
 if __name__ == "__main__":

@@ -14,6 +14,7 @@ VALID_SOURCES = ["CPCB", "OpenAQ", "OpenAQ_AWS_Archive"]
 VALID_AGGREGATIONS = ["average", "maximum", "p90", "count"]
 VALID_DIRECTIONS = ["highest", "lowest"]
 VALID_SCOPES = ["all_cities", "selected_cities", "selected_stations"]
+VALID_DOMAINS = ["air_quality", "corrosivity", "deliquescence", "electronics"]
 
 ROUTER_PROMPT = """You are the structured query planner for an Indian air-quality database.
 Return ONLY valid JSON. Build a complete plan for the current question, using
@@ -21,7 +22,8 @@ the prior plan as conversational state when the question is a follow-up.
 
 The database supports cities, stations, pollutants/weather metrics, sources,
 UTC date ranges, city rankings, station rankings, station lists, station
-counts, trend context, and explanations. Valid sources are CPCB, OpenAQ, and
+counts, trend context, explanations, and two environmental screening domains:
+corrosivity and deliquescence. Valid sources are CPCB, OpenAQ, and
 OpenAQ_AWS_Archive. Valid pollutants include PM2.5, PM10, SO2, NO2, NO, CO,
 NH3, O3, NOX, PM1, UM003, TEMP, HUMIDITY, WIND_SPEED, and WIND_DIR.
 
@@ -42,12 +44,20 @@ Rules:
   explicitly resets them.
 - Explanations may accompany exact SQL, but causes are hypotheses unless the
   database contains supporting evidence.
+- Corrosivity questions use domain=corrosivity and metric=CORROSIVITY_SCORE;
+  deliquescence or under-deposit questions use domain=deliquescence and
+  metric=SAPR; electronics, data-center, substation or ISA-71.04 questions use
+  domain=electronics and metric=ELECTRONICS_SCORE. These are screening proxies,
+  not official classifications or proven asset-failure predictions.
+- For corrosion-domain questions, use the screening marts and keep the
+  station/city/date filters. Do not put CORROSIVITY_SCORE or SAPR in pollutants.
 
 JSON schema:
 {
   "route": "needs_exact_lookup" | "needs_trend_context" | "both",
   "intent": "station_count" | "station_list" | "station_ranking" | "city_ranking" | "data_lookup" | "trend",
   "metric": "PM2.5",
+  "domain": "air_quality" | "corrosivity" | "deliquescence",
   "aggregation": "average" | "maximum" | "p90" | "count",
   "direction": "highest" | "lowest" | null,
   "scope": "all_cities" | "selected_cities" | "selected_stations",
@@ -77,6 +87,7 @@ def _normalise(plan):
         "route": plan.get("route", "needs_trend_context"),
         "intent": plan.get("intent", "trend"),
         "metric": plan.get("metric"),
+        "domain": plan.get("domain", "air_quality"),
         "aggregation": plan.get("aggregation", "average"),
         "direction": plan.get("direction"),
         "scope": plan.get("scope", "all_cities"),
@@ -89,6 +100,7 @@ def _normalise(plan):
         "needs_explanation": bool(plan.get("needs_explanation", True)),
     }
     result["sources"] = [s for s in result["sources"] if s in VALID_SOURCES]
+    result["domain"] = result["domain"] if result["domain"] in VALID_DOMAINS else "air_quality"
     result["aggregation"] = result["aggregation"] if result["aggregation"] in VALID_AGGREGATIONS else "average"
     result["direction"] = result["direction"] if result["direction"] in VALID_DIRECTIONS else None
     result["scope"] = result["scope"] if result["scope"] in VALID_SCOPES else "all_cities"
@@ -103,7 +115,38 @@ def _normalise(plan):
         result["pollutants"] = ["PM2.5"]
     elif result["metric"] and not result["pollutants"]:
         result["pollutants"] = [result["metric"]]
+    if result["domain"] == "corrosivity":
+        result["metric"] = "CORROSIVITY_SCORE"
+        result["pollutants"] = []
+        result["route"] = "needs_exact_lookup"
+    elif result["domain"] == "deliquescence":
+        result["metric"] = "SAPR"
+        result["pollutants"] = []
+        result["route"] = "needs_exact_lookup"
+    elif result["domain"] == "electronics":
+        result["metric"] = "ELECTRONICS_SCORE"
+        result["pollutants"] = []
+        result["route"] = "needs_exact_lookup"
     return result
+
+
+def _domain_from_query(query: str) -> str | None:
+    """Reliable fallback for screening vocabulary the LLM must not miss."""
+    text = (query or "").lower()
+    if any(term in text for term in (
+        "electronics", "electronic corrosion", "data center", "data centre",
+        "substation", "isa-71", "isa 71", "control cabinet", "control room",
+    )):
+        return "electronics"
+    if any(term in text for term in (
+        "deliquescence", "under-deposit", "under deposit", "sapr", "wetting active",
+    )):
+        return "deliquescence"
+    if any(term in text for term in (
+        "corrosivity", "corrosive", "corrosion screening", "atmospheric corrosion",
+    )):
+        return "corrosivity"
+    return None
 
 
 def classify(query: str, history: list | None = None, prior_plan: dict | None = None) -> dict:
@@ -123,6 +166,17 @@ def classify(query: str, history: list | None = None, prior_plan: dict | None = 
             raw = raw.split("```")[1]
             if raw.startswith("json"):
                 raw = raw[4:]
-        return _normalise(json.loads(raw))
+        plan = _normalise(json.loads(raw))
+        inferred_domain = _domain_from_query(query)
+        if inferred_domain and plan["domain"] == "air_quality":
+            plan["domain"] = inferred_domain
+            plan["metric"] = {
+                "corrosivity": "CORROSIVITY_SCORE",
+                "deliquescence": "SAPR",
+                "electronics": "ELECTRONICS_SCORE",
+            }[inferred_domain]
+            plan["pollutants"] = []
+            plan["route"] = "needs_exact_lookup"
+        return plan
     except Exception:
         return _normalise({})

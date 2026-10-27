@@ -30,6 +30,19 @@ Rules:
   crop burning event, or seasonal mechanism caused a city's result unless that
   fact is explicitly present in the retrieved context.
 - Never infer causation from a city ranking or average concentration alone.
+- Corrosivity and deliquescence results are environmental screening proxies from
+  station/day aggregates. Explain that they are not official ISO 9223 ratings,
+  corrosion rates, or proof of asset damage. Do not turn a screening category
+  into a maintenance instruction without asset-specific evidence.
+- Pathway B relates SO2 and an RH-based wetness proxy to an atmospheric-corrosivity
+  screening score; PM10 is retained as context but is not part of the corrected
+  ISO-inspired score. Pathway D relates PM2.5/PM10,
+  NH3, SO2, NO2 and humidity to a SAPR-style deliquescence/under-deposit
+  screening index. Chloride deposition, corrosion coupons, material/stress data,
+  enclosure conditions and laboratory validation are not available.
+- If asked about the proposal pathways, state that B, C and D are implemented
+  as proxies; C is not an ISA-71.04 classification and E (ammonia SCC) is not
+  implemented as a validated prediction.
 - If the data cannot establish the cause, say so directly and explain what
   additional data would be needed.
 - Call out when a ranking is based on very few readings or when the leading

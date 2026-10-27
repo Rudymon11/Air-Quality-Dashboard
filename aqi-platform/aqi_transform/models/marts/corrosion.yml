@@ -1,0 +1,38 @@
+version: 2
+
+models:
+  - name: fct_station_daily_corrosivity
+    description: "Station/day ISO-9223-inspired atmospheric corrosivity screening proxy; not an ISO-compliant corrosion-rate calculation."
+    columns:
+      - name: city
+        tests: [not_null]
+      - name: station
+        tests: [not_null]
+      - name: reading_date
+        tests: [not_null]
+      - name: screening_category
+        tests: [not_null]
+
+  - name: fct_station_daily_deliquescence
+    description: "Station/day hygroscopic particulate and under-deposit pitting screening proxy using the project SAPR heuristic."
+    columns:
+      - name: city
+        tests: [not_null]
+      - name: station
+        tests: [not_null]
+      - name: reading_date
+        tests: [not_null]
+      - name: screening_category
+        tests: [not_null]
+
+  - name: fct_station_daily_electronics_risk
+    description: "Station/day electronics contamination and corrosion screening proxy; not an ISA-71.04 classification."
+    columns:
+      - name: city
+        tests: [not_null]
+      - name: station
+        tests: [not_null]
+      - name: reading_date
+        tests: [not_null]
+      - name: screening_category
+        tests: [not_null]
